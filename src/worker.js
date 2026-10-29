@@ -116,7 +116,7 @@ async function handle({ type, payload: p = {} }) {
       const parsed = parseImport(p.text, p.options);
       const plan = protectImportPlan(previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) }), (await metadata()).rules, p.options);
       if (p.expectedRemovalIds && JSON.stringify([...p.expectedRemovalIds].sort()) !== JSON.stringify(plan.removals.map(cookieId).sort())) throw new Error('Cookie state changed since preview. Preview the import again before replacing cookies.');
-      return executeImport(plan, { repository, snapshot: p.backup || plan.mode === 'replace' ? cookies => requireSnapshot('Before import', p.scope, cookies, 'import') : undefined });
+      return executeImport(plan, { repository, snapshot: p.backup || plan.mode === 'replace' ? async cookies => (await requireSnapshot('Before import', p.scope, cookies, 'import')).id : undefined });
     }
     case 'history.configure': { const policy = await history.configure(p); historyEnabled = policy.enabled; if (!historyEnabled) eventQueue = []; return policy; }
     case 'history.list': return history.list({ ...p, incognito });

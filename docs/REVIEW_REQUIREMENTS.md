@@ -1,28 +1,46 @@
 # Review requirement traceability
 
-Status starts pending; final evidence replaces this table after implementation. A real API limitation is documented separately from missing application work.
+Verified on 29 October 2026 with **47 unit/integration tests and 20 actual MV3 Chromium tests**. “Verified” covers the named acceptance evidence, not an unsupported promise about every Chrome build, hidden partition or native permission prompt. [TEST_REPORT.md](TEST_REPORT.md) records commands, measurements and remaining manual checks. Production cookie operations use real Chrome APIs; the app contains no cookie mocks.
 
-| Review criticism / request | Requirement | Acceptance / evidence | Status |
+## CB implementation index
+
+| ID | Implementation | Automated evidence and limits |
+| --- | --- | --- |
+| CB-01 | [PSL identity/scope/search/filter/sort](../src/core/cookies.js), [store-aware enumeration](../src/core/repository.js), [manager/popup](../src/ui/app.js) | [core unit](../tests/core.test.js), [real multi-domain/path browser cases](../tests/e2e/core.spec.js), [2,500-cookie performance](../tests/e2e/reliability.spec.js). Accessible hosts/stores only; private stores require private workspace. |
+| CB-02 | [Canonical store/partition identity, partition queries and coverage diagnostics](../src/core/repository.js) | [identity/API tests](../tests/repository.test.js), [real CHIPS + unpartitioned separation](../tests/e2e/core.spec.js), [real incognito](../tests/e2e/incognito.spec.js). Hidden frame partitions/policy cannot be promised globally. |
+| CB-03 | [Allowlist and delete/import protection](../src/core/rules.js), [fresh delete preview and encrypted Undo](../src/worker.js) | [rule tests](../tests/core.test.js), [protected import tests](../tests/transferProtection.test.js), [real protected same-name/path deletion](../tests/e2e/core.spec.js), [actual protected replacement](../tests/e2e/transfer.spec.js). Undo requires an unlocked vault; explicit no-Undo deletion is available. |
+| CB-04 | [Full advanced editor](../src/ui/app.js), [validated verified set/remove](../src/core/repository.js), [encrypted Disable/Enable](../src/worker.js) | [real advanced CREATE + disable/restore](../tests/e2e/core.spec.js), [prefix/error tests](../tests/core.test.js). Changing identity means Create followed by explicit deletion of the old identity; no silent move across stores. |
+| CB-05 | [Native/Cookie-Editor JSON and Netscape parser, preview, verified per-cookie reports](../src/services/transfer.js), [scope/protection guard](../src/worker.js) | [13 parser/roundtrip tests](../tests/transfer.test.js), [4 real file/drop/clipboard/redirect/protection cases](../tests/e2e/transfer.spec.js). Target is independent of active tab; native host-permission accept/deny is manual. |
+| CB-06 | [Versioned JSON / Netscape export and explicit copy/download](../src/services/transfer.js), [UI secret confirmation](../src/ui/app.js) | [real clipboard/download roundtrip](../tests/e2e/transfer.spec.js); [format contract](FORMATS.md). Redacted exports cannot restore values; Netscape refuses partitions and loses modern attributes. Download UI says requested, never falsely saved. |
+| CB-07 | [AES-GCM vault](../src/services/vault.js), [profile CRUD/preview/apply/verify/rollback](../src/services/profiles.js), [UI QA switch/import](../src/ui/app.js) | [crypto](../tests/vault.test.js), [profile cases](../tests/profiles.test.js), [real A/B + full browser restart](../tests/e2e/profiles-debug.spec.js), [generic file -> profile -> one-click QA apply](../tests/e2e/history-recovery.spec.js). No persistent incognito profiles; no automatic login or passphrase recovery. |
+| CB-08 | [Opt-in redacted timeline, overwrite correlation, retention, HMAC snapshot diffs](../src/services/history.js), [bounded worker event queue](../src/worker.js) | [history tests](../tests/history.test.js), [real events/diffs](../tests/e2e/profiles-debug.spec.js), [4,000-write burst](../tests/e2e/history-recovery.spec.js). Debug snapshots and drop counter are worker-memory only. Network/HAR integration is deliberately absent; rejection reasons/causality are not observable through cookies API. |
+| CB-09 | [Direct gesture requests/status/revoke](../src/core/permissions.js), [sanitized API errors](../src/core/repository.js), [retry/recovery UI](../src/ui/app.js) | [gesture-order tests](../tests/core.test.js), [actual denied host/unavailable store](../tests/e2e/core.spec.js), [keyboard/axe](../tests/e2e/reliability.spec.js). Native accept/deny dialog is not headless-automatable and remains explicitly unverified manually. |
+| CB-10 | [Top-level listeners, serialized RPC, persisted bounded job journal](../src/worker.js), [versioned storage](../src/storage.js), [store guards](../src/core/repository.js) | [actual import interrupted after writes, no replay](../tests/e2e/history-recovery.spec.js), [popup close + data reset + performance](../tests/e2e/reliability.spec.js), [browser restart](../tests/e2e/profiles-debug.spec.js), [genuine incognito stores](../tests/e2e/incognito.spec.js). Jobs are recovered as uncertain/interrupted, not ACID/resumed automatically. |
+| CB-11 | [Local-only MV3 policy](../src/manifest.json), [asset/CSP/DOM audit](../scripts/audit-build.js), [onboarding/reset UI](../src/ui/app.js) | [no plaintext durable secrets + local resources + reset leaves browser cookies](../tests/e2e/reliability.spec.js), [encrypted persistence checks](../tests/e2e/profiles-debug.spec.js). [Privacy](PRIVACY.md), [security](SECURITY.md); no project licence grant invented. |
+
+## Required review-to-requirement matrix
+
+| Review-Kritik / Wunsch | Umsetzung | Abnahme / technische Einschränkung | Status |
 | --- | --- | --- | --- |
-| Only active website, no global search | CB-01, CB-02 | All-access scope, stores, PSL, permission boundary | Pending |
-| No name/domain/time filter | CB-01 | Search, attribute/date/observed filters | Pending |
-| DevTools shows more cookies | CB-02, CB-09 | Partition/store/host diagnostics | Pending |
-| HttpOnly, partitioned, enterprise unclear | CB-02, CB-04, CB-09 | Attribute editor, verified writes, limitations | Pending |
-| Delete All removes important cookies | CB-03 | Protection rule and destructive preview | Pending |
-| Preserve subdomains | CB-03 | Explicit preserve toggle in deletion plan | Pending |
-| Disable/re-enable individual cookies | CB-04 | Encrypted snapshot remove/restore verification | Pending |
-| Advanced creation fields absent | CB-04 | Same full editor for create/edit | Pending |
-| Import unknown errors / false success | CB-05, CB-08, CB-09 | Parse/preview and verified per-cookie report | Pending |
-| Cookies disappear on reload | CB-05, CB-08 | Observed event history, snapshot diff | Pending |
-| OAuth/ADFS redirect imports | CB-05, CB-08 | Explicit target without active website | Pending |
-| File/clipboard/path confusing | CB-05, CB-06 | Separate download and clipboard actions | Pending |
-| Export all as JSON | CB-06 | Explicit all-access scope and secret consent | Pending |
-| Netscape / yt-dlp | CB-06 | Netscape roundtrip, loss warning | Pending |
-| Reusable browser/test sessions | CB-07 | Encrypted profile CRUD/apply/reopen | Pending |
-| Accidental incognito to regular import | CB-07, CB-10 | Store/context guards, no persistent incognito vault | Pending |
-| Permission buttons / closed tabs | CB-09 | Direct gesture requests, retry and diagnostics | Pending |
-| MV3 stability/crash | CB-09, CB-10 | Top-level worker listener, durable journal | Pending |
-| Slow opening | CB-01, CB-10 | Paginated rows, debounce, measured search/render | Pending |
-| Ads/security concerns | CB-11 | Offline build audit, CSP, encrypted storage | Pending |
-| Simplicity, import/export strengths | CB-05, CB-06 | Popup shortcuts + manager transfer workflow | Pending |
-| Mobile/Brave/Firefox/managed confusion | CB-09, CB-10 | Explicit tested Chromium/support limitations | Pending |
+| Nur Cookies der aktiven Website, keine globale Suche | CB-01, CB-02 | `core.spec.js`: separate domains/subdomains; `reliability.spec.js`: all-access 2,500-cookie search | Verified within granted scope |
+| Kein Cookie-Name-/Domain-/Zeitfilter | CB-01 | `core.test.js`: case-insensitive/wildcard, attribute, expiry and observed filters; browser search | Verified; no creation time invented |
+| Nicht alle Cookies sichtbar, DevTools zeigt mehr | CB-02, CB-09 | `repository.test.js` coverage/partial failure and real partition browser case | Verified diagnostics; hidden contexts documented |
+| HttpOnly / partitioned / enterprise browser unklar | CB-02, CB-04, CB-09 | Actual advanced editor, CHIPS case, no-host/store errors | Verified supported attrs; policies cannot be bypassed |
+| Delete All löscht wichtige Cookies | CB-03 | Real protected root-path cookie survives same-name nested-path deletion | Verified |
+| Subdomain-Cookies nicht gezielt erhalten | CB-03 | Rule/delete-preview subdomain unit cases; multi-domain browser scope | Verified |
+| Einzelne Cookies deaktivieren/reaktivieren | CB-04 | Actual remove -> encrypted snapshot -> restore -> actual reread | Verified, best effort |
+| Domain/Advanced Properties bei Cookie-Erstellung fehlen | CB-04 | CREATE browser test checks all advanced fields, Domain/expiration/CHIPS | Verified |
+| Import funktioniert nicht / Unknown Error / falsche Erfolgsmeldungen | CB-05, CB-08, CB-09 | Parser failures, deliberate reread mismatch, actual per-record browser results | Verified; success requires reread |
+| Cookies gehen nach Reload verloren | CB-05, CB-08 | Actual fixture redirect/server overwrite, event timeline + value/attribute diff | Verified observations; server validity not observable |
+| Import bei OAuth/ADFS-Redirect schwierig | CB-05, CB-08 | Actual controlled redirect, explicit target independent of active tab | Verified controlled flow; no real-account claims |
+| Dateiin-/export, Clipboard und Ausgabepfad unverständlich | CB-05, CB-06 | Actual file/drop/clipboard and saved test downloads; UI distinguishes requested download/copy | Verified |
+| Alle Cookies als JSON exportieren | CB-06 | Scope-aware JSON unit/real download, clear all-access manager scope | Verified for reachable cookies |
+| Netscape cookies.txt / yt-dlp | CB-06 | Real downloaded Netscape parse/write roundtrip incl HttpOnly; supported-field contract | Verified format; third-party authentication not promised |
+| Browserprofile/Testsessions wiederverwenden | CB-07 | Actual A/B CRUD/apply/backup, generic imports, full browser restart+unlock | Verified local cookie snapshots only |
+| Inkognito importiert versehentlich in normales Profil | CB-07, CB-10 | Native UI enables genuine incognito context; distinct stores and refused crossed writes; parser guards | Verified isolation; persistent private profiles refused |
+| Permission-Buttons ohne Funktion / Tab nicht erreichbar | CB-09 | Direct-request synchronous unit test; actual no-access/error/retry and pregranted request | Implemented; native prompt accept/deny manual |
+| Manifest-V3-Probleme, allgemeine Instabilität / Chrome-Crash | CB-09, CB-10 | Actual worker interruption mid-import, popup-close completion, browser restart, 4,000-write burst | Verified tested lifecycle; no universal crash guarantee |
+| Langsame Öffnung | CB-01, CB-10 | Actual 2,500-cookie UI timing, 50 data rows, RAF max-gap metric; 10k pure filter benchmark | Verified measured run |
+| Werbung / Sicherheitsbedenken | CB-11 | Offline asset audit, CSP, no plaintext persistence checks, separate own-data reset | Verified safeguards; no independent security certification |
+| Einfachheit und gutes Import/Export sind positive Eigenschaften | CB-05, CB-06 und UI-Grundsätze | Compact current-site popup; actual UI import preview/download/clipboard; axe/keyboard | Verified workflows; narrow popup scrolls |
+| Mobile Chrome, Brave, Firefox und Managed Browsers werden verwechselt | CB-09, CB-10 | Explicit Settings/README/support table; only tested engine claimed | Verified copy; other browsers/minimum Chrome not tested |

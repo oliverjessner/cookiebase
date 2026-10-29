@@ -26,7 +26,7 @@ Vanilla ESM UI shared between a compact popup and a full manager tab. `oj-design
 | 5 Session Profiles | Vault encryption, CRUD, apply/verify/rollback, persistence and failure tests | Verified: encrypted CRUD/apply/rollback unit tests and 3 real Chromium profile/debug cases incl full browser restart |
 | 6 Debugger | Redacted event timeline, correlation, snapshots/diffs, retention, observed diagnoses | Verified: observed events, overwrite correlation, retention and snapshot diffs in unit/real Chromium tests; bounded worker queue |
 | 7 Reliability & Security | Worker interruption, isolation, CSP/assets, accessibility and performance checks | Verified: 47 unit + 20 real Chromium tests, actual private-store isolation, interrupted import, axe and 2,500-cookie performance |
-| 8 Verification & Release Readiness | Full lint/unit/build/real Chromium E2E, docs, evidence, release artifact | Pending |
+| 8 Verification & Release Readiness | Full lint/unit/build/real Chromium E2E, docs, evidence, release artifact | Verified: full commands pass, evidence reviewed, docs complete, local ZIP and checksum verified; native prompt manual boundary documented |
 
 Each completed phase receives a local commit after relevant verification. Integration defects are corrected in later verified commits. No implementation is counted verified from mocks alone.
 
@@ -34,7 +34,7 @@ Each completed phase receives a local commit after relevant verification. Integr
 
 Unit tests use Node's test runner. Chrome adapter tests exercise errors and exact verification; parser tests cover realistic fixtures, identity/PSL, encryption, isolation and history correlation. Persistent-context Playwright Chromium loads the actual MV3 build. A local HTTP/HTTPS fixture server sets real cookies, including redirects and subdomains. E2E checks popup/manager assets, host grants where automation permits, cookie control/import/export/profiles/history, worker restart, safe data persistence and accessibility. Performance uses thousands of synthetic records for pure search/render timing plus real browser APIs for representative cookie operations; measurements are recorded separately.
 
-Limitations must remain visible in UI and final docs: inaccessible hosts/stores, unknown CHIPS partitions, browser policy, rejected writes, invalidated sessions, no other-browser access, incognito opt-in, and no observable network rejection reason without a network integration. Unautomatable permission dialogs and incognito enablement are reported honestly and have manual acceptance steps.
+Limitations must remain visible in UI and final docs: inaccessible hosts/stores, unknown CHIPS partitions, browser policy, rejected writes, invalidated sessions, no other-browser access, incognito opt-in, and no observable network rejection reason without a network integration. Native optional-host acceptance/denial is reported honestly and has manual acceptance steps. Incognito enablement and separate stores were subsequently verified through actual browser UI.
 
 ## Integration note
 
@@ -42,4 +42,21 @@ The worker/UI service contracts were integrated together during Phase 2 so the c
 
 ## Phase 7 evidence
 
-Final integrated run: lint, 47/47 unit tests, build and 20/20 real MV3 Chromium E2E cases passed. A real in-flight import was interrupted by forcibly stopping the worker: no success reply, durable interrupted status, and no automatic replay. The incognito case enables browser Developer mode and Allow in incognito using normal Chrome UI, then verifies actual separate stores and refused cross-store writes. Axe serious/critical checks cover all six workspaces and popup. Real 2,500-cookie load 149.8 ms/search 201.2 ms in this run, 50 cookie rows plus one group row, maximum frame gap 16.7 ms. Native optional-host permission accept/deny still requires manual browser confirmation, precisely separated from real-cookie tests with fixture grants.
+Final integrated run: lint, 47/47 unit tests, build and 20/20 real MV3 Chromium E2E cases passed. A real in-flight import was interrupted by forcibly stopping the worker: no success reply, durable interrupted status, and no automatic replay. The incognito case enables browser Developer mode and Allow in incognito using normal Chrome UI, then verifies actual separate stores and refused cross-store writes. Axe serious/critical checks cover all six workspaces and popup. Real 2,500-cookie load 136.1 ms/search 195.3 ms in this run, 50 cookie rows plus one group row, maximum frame gap 16.7 ms. Native optional-host permission accept/deny still requires manual browser confirmation, precisely separated from real-cookie tests with fixture grants.
+
+## Release readiness and remaining boundaries
+
+The complete mandatory documentation, native JSON/Netscape format contract and permanent genuine screenshot/measurement evidence are present. Local release commands: `npm run package`, `unzip -t artifacts/cookiebase-0.1.0.zip`, `npm run lint`, `npm run check:plan`, `git diff --check`. No push, publication, release tag, Web Store upload or external repository change occurred.
+
+Remaining boundaries are explicit in the requirement matrix and test report: new native host-permission acceptance/denial is manual and not yet performed; Chrome132/current stable/Edge/Brave/enterprise matrices are not executed; hidden partition/store access is browser-limited; server sessions cannot be revived; Undo/apply is best effort; debug snapshots/drop counters and all incognito extension data are memory-only; optional network/HAR integration is not implemented. Renaming/changing a cookie identity uses explicit Create then Delete rather than a silent move. Cookiebase has no owner-selected project licence yet. None of these is represented as an automated green check.
+
+## Phase commits
+
+1. `a53fe8f` — audit and traceability plan.
+2. `2f91836` — self-contained MV3/OJ UI and module foundations.
+3. `1c44b34` — verified advanced control/protected cleanup.
+4. `a757722` — hardened imports and deliberate secret exports.
+5. `77464cf` — encrypted reusable QA profile workflows.
+6. `5f01d2f` — bounded debugger and profile scope safeguards.
+7. `82db400` — lifecycle, incognito, responsive UI and regression evidence.
+8. Final release-readiness commit — documentation, evidence, packaging and final verification.

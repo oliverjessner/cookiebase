@@ -1,0 +1,16 @@
+import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+const pkg = JSON.parse(await readFile('package.json', 'utf8'));
+const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
+if (manifest.version !== pkg.version || !/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('Release versions must match.');
+await mkdir('artifacts', { recursive: true });
+const filename = `cookiebase-${pkg.version}.zip`;
+const archive = path.resolve('artifacts', filename);
+await rm(archive, { force: true });
+const result = spawnSync('zip', ['-X', '-q', '-r', archive, '.'], { cwd: 'dist', stdio: 'inherit' });
+if (result.error || result.status !== 0) throw new Error('ZIP creation failed. Install the zip command or load dist/ unpacked.');
+const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
+await writeFile(`${archive}.sha256`, `${digest}  ${filename}\n`);
+console.log(`Created artifacts/${filename} and SHA-256 checksum.`);
