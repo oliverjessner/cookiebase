@@ -4,10 +4,28 @@
   "version": "0.1.0",
   "description": "Your cookies. Your control. Local inspection, protection, encrypted session profiles and debugging.",
   "minimum_chrome_version": "132",
-  "permissions": ["cookies", "storage", "activeTab"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
-  "background": {"service_worker": "worker.js", "type": "module"},
-  "action": {"default_popup": "popup.html", "default_title": "Cookiebase"},
+  "permissions": [
+    "cookies",
+    "storage",
+    "activeTab",
+    "sidePanel"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Cookiebase side panel"
+  },
   "incognito": "split",
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'; frame-ancestors 'none'"}
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'; frame-ancestors 'none'"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
 }

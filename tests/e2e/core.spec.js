@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.js';
+import { test, expect, chooseScope, grant } from './fixtures.js';
 import { cookieId } from '../../src/core/cookies.js';
 
 async function rpc(page, type, payload = {}) {
@@ -17,9 +17,10 @@ function cookie(domain, storeId, patch = {}) {
     hostOnly: true, secure: true, httpOnly: true, sameSite: 'lax', session: true, ...patch };
 }
 async function grantViaButton(manager, url) {
-  await manager.locator('#target-url').fill(url);
-  await manager.locator('#grant-site').click();
-  await expect.poll(() => manager.evaluate(async (target) => chrome.permissions.contains({ origins: [`${new URL(target).protocol}//${new URL(target).hostname}/*`] }), url)).toBe(true);
+  await chooseScope(manager,{url});
+  const hostname=new URL(url).hostname;
+  await grant(manager,[`http://${hostname}/*`,`https://${hostname}/*`]);
+  await expect(manager.getByText('Access granted for this site',{exact:true})).toBeVisible();
 }
 
 test.describe('fresh install without host access', () => {
@@ -35,7 +36,7 @@ test.describe('fresh install without host access', () => {
   expect(oj.styles.every(url => !url || url.startsWith('chrome-extension://'))).toBeTruthy();
   expect(oj.icons.some(font => font.includes('Font Awesome'))).toBeTruthy();
   expect(oj.localFonts.some(font => font.includes('Comfortaa'))).toBeTruthy();
-  await expect(manager.getByText(/Limited access: only explicitly granted hosts/)).toBeVisible();
+  await expect(manager.getByText(/Results cover 0 granted hosts/)).toBeVisible();
 });
 
 });
@@ -137,8 +138,10 @@ test('Create editor exposes every advanced attribute, masks secrets and saves th
   await manager.getByRole('link', { name: 'Cookies', exact: true }).click();
   await manager.locator('#create-cookie').click();
   const dialog = manager.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'Create cookie · all attributes' })).toBeVisible();
-  for (const id of ['edit-name', 'edit-value', 'edit-domain', 'edit-path', 'edit-storeId', 'edit-sameSite', 'edit-expiration', 'edit-partition']) await expect(dialog.locator(`#${id}`)).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Create cookie' })).toBeVisible();
+  for (const id of ['edit-name', 'edit-value', 'edit-domain', 'edit-path', 'edit-storeId', 'edit-sameSite']) await expect(dialog.locator(`#${id}`)).toBeVisible();
+  await expect(dialog.locator('#edit-expiration')).toBeHidden();
+  await expect(dialog.locator('#edit-partition')).toBeHidden();
   await dialog.locator('#edit-name').fill('editor-advanced');
   await dialog.locator('#edit-value').fill('secret visible only after reveal');
   await expect(dialog.locator('#edit-value')).toHaveAttribute('type', 'password');
@@ -147,11 +150,12 @@ test('Create editor exposes every advanced attribute, masks secrets and saves th
   await dialog.getByLabel('Reveal secret value', { exact: true }).uncheck();
   await dialog.locator('#edit-path').fill('/tools');
   await dialog.locator('#edit-sameSite').selectOption('strict');
-  await dialog.getByLabel('httpOnly', { exact: true }).check();
-  await dialog.getByLabel('hostOnly', { exact: true }).uncheck();
-  await dialog.getByLabel('session', { exact: true }).uncheck();
+  await dialog.getByLabel('HTTP only', { exact: true }).check();
+  await dialog.getByLabel('Exact host only', { exact: true }).uncheck();
+  await dialog.locator('#edit-lifetime').selectOption('persistent');
   const future = new Date(Date.now() + 86400000).toISOString().slice(0, 19);
   await dialog.locator('#edit-expiration').fill(future);
+  await dialog.locator('#edit-partitioned').check();
   await dialog.locator('#edit-partition').fill('https://cookiebase.test');
   await dialog.getByLabel('Partition has cross-site ancestor', { exact: true }).check();
   await dialog.getByRole('button', { name: 'Save & verify', exact: true }).click();
@@ -164,7 +168,8 @@ test('Create editor exposes every advanced attribute, masks secrets and saves th
   expect(actual.expirationDate).toBeGreaterThan(Date.now() / 1000);
   await manager.locator('#search').fill('editor-ad*');
   await expect(manager.locator('#cookie-count')).toContainText('1 filtered');
-  await manager.getByRole('button', { name: 'editor-advanced', exact: true }).click();
+  await manager.getByRole('button', { name: 'Details for editor-advanced', exact: true }).click();
+  await manager.getByRole('button',{name:'Edit cookie',exact:true}).click();
   await expect(manager.getByRole('dialog').locator('#edit-value')).toHaveAttribute('type', 'password');
   await manager.keyboard.press('Escape');
   await expect(manager.getByRole('dialog')).toHaveCount(0);

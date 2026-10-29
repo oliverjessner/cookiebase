@@ -6,16 +6,20 @@ function cookieFor(url, patch = {}) {
     path: '/', storeId: '0', hostOnly: true, secure: url.startsWith('https:'), httpOnly: true, sameSite: 'lax', session: true, ...patch };
 }
 function scopeFor(url) { return { type: 'host', url, storeId: '0', incognito: false }; }
-async function openCookies(manager, url) {
-  await manager.locator('#target-url').fill(url);
-  await manager.locator('#scope-type').selectOption('host');
-  await manager.locator('#refresh').click();
-  await manager.getByRole('link', { name: 'Cookies', exact: true }).click();
-  await expect(manager.locator('#transfer')).toBeVisible();
+async function openCookies(manager, target) {
+  const url=new URL(manager.url()); url.searchParams.set('url',target); url.hash='cookies';
+  await manager.goto(url.href);
+  await expect(manager.locator('#import-cookies')).toBeVisible();
 }
+async function previewImportUI(manager) {
+  await manager.locator('#import-next').click();
+  await manager.locator('#import-preview-action').click();
+  await expect(manager.locator('#import-preview')).toBeVisible();
+}
+
 async function downloadText(manager, { secrets = false } = {}) {
   const promised = manager.waitForEvent('download');
-  await manager.getByRole('button', { name: 'Download file', exact: true }).click();
+  await manager.locator('#export-download').click();
   if (secrets) await manager.getByRole('button', { name: 'Export values', exact: true }).click();
   const download = await promised;
   expect(await download.failure()).toBeNull();
@@ -25,25 +29,24 @@ async function downloadText(manager, { secrets = false } = {}) {
 test('file import preview, per-cookie errors and verified real writes; redacted download and clipboard feedback', async ({ manager, context, httpsURL }) => {
   await grant(manager);
   await openCookies(manager, httpsURL);
-  await manager.locator('#transfer').click();
+  await manager.locator('#import-cookies').click();
   const valid = [cookieFor(httpsURL), cookieFor(httpsURL, { name: 'transfer_consent', value: 'essential', httpOnly: false })];
   const invalid = cookieFor(httpsURL, { name: '__Host-invalid', secure: false, value: 'SECRET_INVALID_NOT_IN_REPORT' });
   await manager.locator('#import-file').setInputFiles({ name: 'cookie-editor.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([...valid, invalid])) });
   await expect(manager.locator('#import-text')).toHaveValue(JSON.stringify([...valid, invalid]));
-  await manager.getByRole('button', { name: 'Parse & preview', exact: true }).click();
-  await expect(manager.locator('#import-preview')).toContainText('"valid": 2');
-  await expect(manager.locator('#import-preview')).toContainText('"invalid": 1');
+  await previewImportUI(manager);
+  await expect(manager.locator('#import-preview')).toContainText('2 valid · 1 invalid');
   await expect(manager.locator('#import-preview')).not.toContainText(invalid.value);
   expect((await rpc(manager, 'list', { scope: scopeFor(httpsURL) })).cookies).toHaveLength(0);
   await manager.locator('#import-apply').click();
   const report = manager.getByRole('dialog').filter({ has: manager.getByRole('heading', { name: 'Import results · verified at import time' }) });
-  await expect(report).toContainText('"imported": 2');
-  await expect(report).toContainText('"failed": 1');
+  await expect(report.locator('.oj-metric').filter({hasText:'Imported'}).locator('.oj-metric-value')).toHaveText('2');
+  await expect(report.locator('.oj-metric').filter({hasText:'Failed'}).locator('.oj-metric-value')).toHaveText('1');
   await expect(report).not.toContainText(valid[0].value);
   const actual = (await rpc(manager, 'list', { scope: scopeFor(httpsURL) })).cookies;
   expect(actual.find(c => c.name === valid[0].name)?.value).toBe(valid[0].value);
-  await report.getByRole('button', { name: 'Close', exact: true }).click();
-  await manager.locator('#transfer').click();
+  await report.getByRole('button', { name: 'Done', exact: true }).click();
+  await manager.locator('#export-cookies').click();
   const saved = await downloadText(manager);
   expect(saved.name).toMatch(/^cookies-\d{4}-\d{2}-\d{2}\.json$/);
   const redacted = JSON.parse(saved.text);
@@ -63,8 +66,9 @@ test('explicit secret confirmation, JSON/Netscape downloaded roundtrip and drag-
   const cookie = cookieFor(httpsURL, { name: 'roundtrip_sid', sameSite: 'unspecified' });
   await rpc(manager, 'set', { cookie });
   await openCookies(manager, httpsURL);
-  await manager.locator('#transfer').click();
-  await manager.getByRole('checkbox', { name: 'Redacted export (no secret values)', exact: true }).uncheck();
+  await manager.locator('#export-cookies').click();
+  await manager.locator('#export-purpose').selectOption('working');
+  await manager.locator('#export-secrets-consent').check();
   const json = await downloadText(manager, { secrets: true });
   expect(JSON.parse(json.text).cookies[0].value).toBe(cookie.value);
   await manager.locator('#export-format').selectOption('netscape');
@@ -73,14 +77,16 @@ test('explicit secret confirmation, JSON/Netscape downloaded roundtrip and drag-
   expect(netscape.text).toContain('#HttpOnly_localhost');
   expect(netscape.text).toContain(cookie.value);
   await rpc(manager, 'set', { cookie: { ...cookie, value: 'CHANGED_BY_BROWSER_FIXTURE' } });
+  await manager.locator('#cookie-export').getByRole('button',{name:'Done',exact:true}).click();
+  await manager.locator('#import-cookies').click();
   await manager.locator('#import-text').evaluate((textarea, text) => {
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(new File([text], 'cookies.txt', { type: 'text/plain' }));
     textarea.closest('section').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
   }, netscape.text);
   await expect(manager.locator('#import-text')).toHaveValue(netscape.text);
-  await manager.getByRole('button', { name: 'Parse & preview', exact: true }).click();
-  await expect(manager.locator('#import-preview')).toContainText('"overwritten": 1');
+  await previewImportUI(manager);
+  await expect(manager.locator('#import-preview')).toContainText('1 overwrites');
   await manager.locator('#import-apply').click();
   await expect(manager.getByRole('heading', { name: 'Import results · verified at import time' })).toBeVisible();
   expect((await rpc(manager, 'list', { scope: scopeFor(httpsURL) })).cookies.find(c => c.name === cookie.name)?.value).toBe(cookie.value);

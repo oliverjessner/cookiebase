@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { performance } from 'node:perf_hooks';
-import { test, expect, grant, rpc } from './fixtures.js';
+import { test, expect, grant, rpc, chooseScope } from './fixtures.js';
 
 async function workspace(manager, name) {
   await manager.getByRole('link', { name, exact: true }).click();
@@ -12,9 +12,8 @@ test('all manager workspaces and popup have no serious axe violations; keyboard 
   manager.on('pageerror', error => errors.push(error.message));
   popup.on('pageerror', error => errors.push(error.message));
   await grant(manager);
-  await manager.locator('#target-url').fill(baseURL);
-  await manager.locator('#refresh').click();
-  for (const name of ['Overview', 'Cookies', 'Rules', 'Profiles', 'Debug', 'Settings']) {
+  await chooseScope(manager,{url:baseURL});
+  for (const name of ['Cookies', 'Rules', 'Profiles', 'Debug', 'Settings']) {
     await workspace(manager, name);
     const result = await new AxeBuilder({ page: manager }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
     expect(result.violations.filter(v => ['serious', 'critical'].includes(v.impact)), `${name}: ${JSON.stringify(result.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.map(n => n.target) })))}`).toEqual([]);
@@ -58,7 +57,7 @@ test('2500 actual cookies render in bounded pages and search stays responsive', 
   await context.addCookies(cookies);
   const writeMs = performance.now() - writeStarted;
   await workspace(manager, 'Cookies');
-  await manager.locator('#scope-type').selectOption('all');
+  await chooseScope(manager,{type:'all'});
   await manager.evaluate(() => {
     globalThis.__cookiebaseFrameMetrics = { started: performance.now(), last: performance.now(), maxGapMs: 0, frames: 0 };
     const sample = time => {

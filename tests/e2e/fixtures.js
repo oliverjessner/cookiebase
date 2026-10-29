@@ -138,9 +138,20 @@ export const test = base.extend({
   },
   popup: async ({ context, extensionId }, use) => {
     const page = await context.newPage();
-    await page.setViewportSize({ width: 560, height: 600 });
-    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    await page.setViewportSize({ width: 400, height: 900 });
+    await page.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await expect(page.locator('#main')).toBeVisible();
     await use(page);
   },
 });
+
+/** Apply a site/scope through the production context dialog. */
+export async function chooseScope(page,{url,type='host',mode='pinned'}={}) {
+  await page.locator('#change-scope').click();
+  await page.locator('#context-mode').selectOption(mode);
+  await page.locator('#scope-type').selectOption(type);
+  if (url !== undefined && !['all','domains'].includes(type)) await page.locator('#target-url').fill(url);
+  await page.locator('#apply-scope').click();
+  await expect(page.locator('#scope-dialog')).toHaveCount(0);
+  await expect(page.locator('#main')).not.toHaveAttribute('aria-busy','true');
+}

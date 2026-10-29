@@ -122,29 +122,31 @@ test('actual in-flight import interruption yields an interrupted journal and nev
   } finally { await session.detach(); }
 });
 
-test('generic JSON and Netscape cookie files become encrypted profiles and the direct QA-state button applies them', async ({ manager, context, extensionId, baseURL }) => {
+test('generic JSON and Netscape cookie files become encrypted profiles and use the consistent preview/apply flow', async ({ manager, context, extensionId, baseURL }) => {
   await grant(manager);
   await rpc(manager, 'vault.initialize', { passphrase: 'UI profile import QA passphrase' });
   await manager.goto(`chrome-extension://${extensionId}/manager.html?url=${encodeURIComponent(baseURL)}#profiles`);
   const generic = cookieFor(baseURL, 'ui_profile_sid', 'UI_PROFILE_JSON_SECRET_621bca');
+  await manager.locator('summary').filter({ hasText: 'Import a profile or cookie file' }).click();
   await manager.locator('#profile-file').setInputFiles({ name: 'generic-cookies.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([generic])) });
   await expect(manager.getByRole('dialog')).toBeVisible();
   await manager.locator('#profile-name').fill('Imported JSON QA');
   await manager.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(manager.getByRole('heading', { name: 'Imported JSON QA', exact: true })).toBeVisible();
   const netscape = '# Netscape HTTP Cookie File\n#HttpOnly_localhost\tFALSE\t/\tFALSE\t0\tui_netscape_sid\tUI_PROFILE_NETSCAPE_SECRET_3d86ac\n';
+  await manager.locator('summary').filter({ hasText: 'Import a profile or cookie file' }).click();
   await manager.locator('#profile-file').setInputFiles({ name: 'cookies.txt', mimeType: 'text/plain', buffer: Buffer.from(netscape) });
   await manager.locator('#profile-name').fill('Imported Netscape QA');
   await manager.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(manager.getByRole('heading', { name: 'Imported Netscape QA', exact: true })).toBeVisible();
   expect((await context.cookies(baseURL)).filter(c => c.name.startsWith('ui_'))).toHaveLength(0);
-  const profile = manager.getByRole('heading', { name: 'Imported JSON QA', exact: true }).locator('..');
-  await expect(profile.getByText(/QA state preview/)).toBeVisible();
-  await profile.getByRole('button', { name: 'Apply this QA state', exact: true }).click();
-  await expect(manager.getByRole('heading', { name: 'QA state apply results', exact: true })).toBeVisible();
-  const result = JSON.parse(await manager.getByRole('dialog').locator('pre').textContent());
-  expect(result.failed).toBe(0);
-  expect(result.applied).toBe(1);
+  const profile = manager.getByRole('heading', { name: 'Imported JSON QA', exact: true }).locator('..').locator('..');
+  await profile.getByRole('button', { name: 'Preview and apply', exact: true }).click();
+  await expect(manager.locator('#profile-preview-state')).toContainText('Preview ready');
+  await manager.locator('#profile-apply').click();
+  await expect(manager.getByRole('heading', { name: 'Profile apply results', exact: true })).toBeVisible();
+  await expect(manager.getByRole('dialog').locator('.oj-metric').filter({ hasText: 'Applied' })).toContainText('1');
+  await expect(manager.getByRole('dialog').locator('.oj-metric').filter({ hasText: 'Failed' })).toContainText('0');
   expect((await context.cookies(baseURL)).find(cookie => cookie.name === generic.name)?.value).toBe(generic.value);
   const records = JSON.stringify(await databaseRecords(manager));
   expect(records).not.toContain(generic.value);
