@@ -1,0 +1,30 @@
+:root { --oj-accent: #45c6b0; }
+body { margin: 0; }
+body[data-page="popup"] { width: 560px; min-height: 520px; }
+.cb-shell { max-width: 1600px; margin: auto; padding: var(--oj-space-6); display: grid; gap: var(--oj-space-4); }
+.cb-header { display: flex; justify-content: space-between; align-items: center; gap: var(--oj-space-4); flex-wrap: wrap; }
+.cb-brand { display: flex; align-items: center; gap: var(--oj-space-3); }
+.cb-brand > i { color: var(--oj-accent-text); font-size: var(--oj-text-2xl); }
+.cb-brand h1, .cb-brand p { margin: 0; }
+.cb-scope, .cb-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,200px),1fr)); gap: var(--oj-space-3); }
+.cb-tools { display: flex; gap: var(--oj-space-2); align-items: end; flex-wrap: wrap; }
+.cb-tools > .oj-field { flex: 1; min-width: 145px; }
+.cb-view { display: grid; gap: var(--oj-space-4); min-width: 0; }
+.cb-muted { color: var(--oj-text-muted); }
+.cb-value { font-family: var(--oj-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cb-table { max-height: 64vh; }
+.cb-table th, .cb-table td { white-space: nowrap; }
+.cb-table .cb-domain-row td { background: var(--oj-bg-elevated); color: var(--oj-text-muted); }
+.cb-table td.cb-name { max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+.cb-card { display: grid; gap: var(--oj-space-3); }
+.cb-report { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--oj-font-mono); font-size: var(--oj-text-sm); }
+.cb-dialog { width: min(850px,calc(100vw - 32px)); max-height: 90vh; }
+.cb-dialog form { display: grid; gap: var(--oj-space-4); }
+.cb-help { max-width: 90ch; overflow-wrap: anywhere; }
+.cb-timeline { max-height: 55vh; overflow: auto; }
+.cb-profile { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--oj-space-4); }
+.cb-status { overflow-wrap: anywhere; }
+body[data-page="popup"] .cb-shell { padding: var(--oj-space-3); }
+body[data-page="popup"] .cb-table { max-height: 320px; }
+body[data-page="popup"] .cb-full { display: none; }
+@media (max-width: 600px) { .cb-shell { padding: var(--oj-space-3); } .cb-header { align-items: start; } .cb-tools { align-items: stretch; } body[data-page="popup"] { width: min(560px,100vw); } }

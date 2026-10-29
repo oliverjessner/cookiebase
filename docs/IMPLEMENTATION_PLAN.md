@@ -20,7 +20,7 @@ Vanilla ESM UI shared between a compact popup and a full manager tab. `oj-design
 | Phase | Work / verification | State |
 | --- | --- | --- |
 | 1 Audit & Plan | Full prompt read, baseline, architecture and requirement matrix; `npm run check:plan` | Verified: plan check passed |
-| 2 Core & UI | MV3, OJ assets, PSL scopes, stores, permissions, paginated inspection; unit tests/build | Pending |
+| 2 Core & UI | MV3, OJ assets, PSL scopes, stores, permissions, paginated inspection; unit tests/build | Verified: 40 unit tests, lint/build, real core Chromium 4/4; service foundations integrated early |
 | 3 Control & Editing | Verified CRUD, rules, delete preview, encrypted Undo/Disable; unit/integration tests | Pending |
 | 4 Import & Export | JSON/Netscape parser, previews and reports, copy/download, fixtures roundtrip | Pending |
 | 5 Session Profiles | Vault encryption, CRUD, apply/verify/rollback, persistence and failure tests | Pending |
@@ -35,3 +35,7 @@ Each completed phase receives a local commit after relevant verification. Integr
 Unit tests use Node's test runner. Chrome adapter tests exercise errors and exact verification; parser tests cover realistic fixtures, identity/PSL, encryption, isolation and history correlation. Persistent-context Playwright Chromium loads the actual MV3 build. A local HTTP/HTTPS fixture server sets real cookies, including redirects and subdomains. E2E checks popup/manager assets, host grants where automation permits, cookie control/import/export/profiles/history, worker restart, safe data persistence and accessibility. Performance uses thousands of synthetic records for pure search/render timing plus real browser APIs for representative cookie operations; measurements are recorded separately.
 
 Limitations must remain visible in UI and final docs: inaccessible hosts/stores, unknown CHIPS partitions, browser policy, rejected writes, invalidated sessions, no other-browser access, incognito opt-in, and no observable network rejection reason without a network integration. Unautomatable permission dialogs and incognito enablement are reported honestly and have manual acceptance steps.
+
+## Integration note
+
+The worker/UI service contracts were integrated together during Phase 2 so the committed MV3 build is self-contained. Later phases separately verify and harden control, transfer, profiles and debugger with their dedicated browser acceptance suites. Phase 2 found a real Chrome same-name/path deletion hazard; exact-identity expiration plus sibling verification resolves it and the real-browser regression passes.

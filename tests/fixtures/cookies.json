@@ -1,0 +1,6 @@
+[
+  {"name":"consent","value":"essential=yes&analytics=no","domain":".example.test","path":"/","hostOnly":false,"secure":true,"httpOnly":false,"sameSite":"lax","session":false,"expirationDate":1893456000,"storeId":"0"},
+  {"name":"session","value":"fixture-session-not-a-real-credential","domain":"auth.example.test","path":"/oauth","hostOnly":true,"secure":true,"httpOnly":true,"sameSite":"no_restriction","session":true,"storeId":"0"},
+  {"name":"same-name","value":"root","domain":"app.example.test","path":"/","hostOnly":true,"secure":false,"httpOnly":false,"sameSite":"unspecified","session":true,"storeId":"0"},
+  {"name":"same-name","value":"nested","domain":"app.example.test","path":"/account","hostOnly":true,"secure":false,"httpOnly":false,"sameSite":"unspecified","session":true,"storeId":"0"}
+]

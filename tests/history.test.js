@@ -1,0 +1,82 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { compareSnapshotCookies, createHistoryService } from '../src/services/history.js';
+const cookie = { name: 'sid', value: 'SESSION_SECRET', domain: 'example.com', path: '/', storeId: '0', hostOnly: true, secure: true, httpOnly: true, session: true, sameSite: 'lax' };
+const scope = { type: 'all', storeId: '0', incognito: false };
+function storage() {
+  const map = new Map();
+  return { map, get: async key => structuredClone(map.get(key)), set: async (key, value) => { map.set(key, structuredClone(value)); }, delete: async key => { map.delete(key); } };
+}
+test('history is opt-in, redacts values, collapses overwrite pairs and survives service recreation', async () => {
+  const store = storage();
+  const service = createHistoryService(store);
+  assert.equal((await service.record({ cookie, cause: 'explicit', removed: false })).recorded, false);
+  await service.configure({ enabled: true });
+  await service.record({ cookie, cause: 'explicit', removed: false });
+  await service.record({ cookie, cause: 'overwrite', removed: true });
+  await service.record({ cookie: { ...cookie, value: 'NEW_SECRET', sameSite: 'strict' }, cause: 'explicit', removed: false });
+  const events = await service.list();
+  assert.equal(events.length, 2);
+  assert.equal(events[0].kind, 'overwrite');
+  assert.equal(events[0].valueChanged, true);
+  assert.deepEqual(events[0].changedAttributes, ['sameSite']);
+  const encoded = JSON.stringify([...store.map]);
+  assert.equal(encoded.includes('SESSION_SECRET'), false);
+  assert.equal(encoded.includes('NEW_SECRET'), false);
+  assert.equal(encoded.includes('valueDigest'), false);
+  assert.equal((await createHistoryService(store).list()).length, 2);
+});
+test('history correlates redacted pending overwrite after restart without inventing a value comparison', async () => {
+  const store = storage();
+  const before = createHistoryService(store);
+  await before.configure({ enabled: true });
+  await before.record({ cookie, cause: 'overwrite', removed: true });
+  const after = createHistoryService(store);
+  await after.record({ cookie: { ...cookie, value: 'new' }, cause: 'explicit', removed: false });
+  const events = await after.list();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'overwrite');
+  assert.equal(events[0].valueChanged, null);
+});
+test('retention is bounded, incognito history never persists and store filtering is isolated', async () => {
+  const store = storage();
+  const service = createHistoryService(store);
+  await service.configure({ enabled: true, maxEntries: 2 });
+  for (let i = 0; i < 5; i++) await service.record({ cookie: { ...cookie, name: `c${i}` }, removed: false });
+  await service.record({ cookie: { ...cookie, name: 'private', storeId: '1' }, removed: false }, { incognito: true });
+  assert.equal((await service.list()).length, 2);
+  assert.equal((await service.list({ incognito: true })).length, 1);
+  assert.equal(JSON.stringify([...store.map]).includes('private'), false);
+  assert.equal((await service.list({ storeId: '1' })).length, 0);
+  await assert.rejects(service.configure({ maxEntries: 10001 }), /10,000/);
+});
+test('snapshot diffs detect values and attributes while every reported value remains redacted', async () => {
+  const store = storage();
+  const service = createHistoryService(store);
+  const before = await service.capture({ name: 'Before reload', scope, cookies: [cookie, { ...cookie, name: 'removed' }] });
+  const after = await service.capture({ name: 'After reload', scope, cookies: [{ ...cookie, value: 'changed', httpOnly: false }, { ...cookie, name: 'added' }] });
+  const diff = await service.compare(before.id, after.id);
+  assert.equal(diff.added.length, 1);
+  assert.equal(diff.removed.length, 1);
+  assert.equal(diff.changed.length, 1);
+  assert.equal(diff.changed[0].valueChanged, true);
+  assert.deepEqual(diff.changed[0].attributes, ['httpOnly']);
+  assert.equal(JSON.stringify(diff).includes('SESSION_SECRET'), false);
+  assert.equal(store.map.size, 0);
+  await assert.rejects(createHistoryService(store).compare(before.id, after.id), /expired|restarted/);
+  const direct = compareSnapshotCookies([cookie], [{ ...cookie, value: 'new' }]);
+  assert.equal(direct.changed[0].valueChanged, true);
+  assert.equal(JSON.stringify(direct).includes('SESSION_SECRET'), false);
+});
+test('observation timestamps come from the callback and age retention removes stale events', async () => {
+  const store = storage();
+  const service = createHistoryService(store);
+  await service.configure({ enabled: true, maxAgeHours: 1 });
+  await service.record({ cookie, removed: true, cause: 'expired' }, { observedAt: Date.now() - 7_200_000 });
+  assert.equal((await service.list()).length, 0);
+  const observedAt = Date.now() - 100;
+  await service.record({ cookie, removed: true, cause: 'evicted' }, { observedAt });
+  const events = await service.list();
+  assert.equal(events[0].observedAt, observedAt);
+  assert.equal(events[0].cause, 'evicted');
+});
