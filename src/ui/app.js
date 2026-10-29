@@ -4,7 +4,7 @@ import { initOJ, toast, confirmDialog } from 'oj-designsystem';
 import { cookieId, filterCookies, scopeLabel, registrableDomain, inScope } from '../core/cookies.js';
 import { protectedBy } from '../core/rules.js';
 import { createPermissionService } from '../core/permissions.js';
-import { exportCookies } from '../services/transfer.js';
+import { exportCookies, parseImport } from '../services/transfer.js';
 
 const popup = document.body.dataset.page === 'popup';
 const permissions = createPermissionService(chrome);
@@ -98,15 +98,23 @@ async function render() {
 }
 function commonScope() {
   const url = field('Target URL (works without an open site)', 'target-url', state.url, 'url');
-  url.input.addEventListener('change', () => { state.url = url.input.value; state.page = 0; refresh().then(render).catch(showError); });
+  url.input.addEventListener('change', () => { state.url = url.input.value; state.page = 0; invalidateScope(); });
   const choice = select('Cookie scope', 'scope-type', [['url', 'Current URL'], ['host', 'Current host'], ['site', 'Site incl. subdomains (PSL)'], ['domains', 'Selected domains'], ['all', 'All accessible sites']], state.scopeType);
-  choice.input.addEventListener('change', () => { state.scopeType = choice.input.value; state.page = 0; updateScopeText(); refresh().then(render).catch(showError); });
+  choice.input.addEventListener('change', () => { state.scopeType = choice.input.value; state.page = 0; updateScopeText(); invalidateScope(); });
   const store = select('Store / browser context', 'store', state.stores.length ? state.stores.map(s => [s.id, `${s.id} · ${s.incognito ? 'Incognito' : 'Regular'}`]) : [['', 'No accessible store']], state.storeId);
-  store.input.addEventListener('change', () => { state.storeId = store.input.value; state.page = 0; refresh().then(render).catch(showError); });
-  const domains = field('Selected domains (comma separated)', 'domains', state.domains); domains.input.addEventListener('change', () => { state.domains = domains.input.value; refresh().then(render).catch(showError); });
+  store.input.addEventListener('change', () => { state.storeId = store.input.value; state.page = 0; invalidateScope(); });
+  const domains = field('Selected domains (comma separated)', 'domains', state.domains); domains.input.addEventListener('change', () => { state.domains = domains.input.value; invalidateScope(); });
   const tools = node('div', { class: 'oj-cluster' }, button('Refresh / Retry', async () => { state.url = url.input.value; state.scopeType = choice.input.value; state.storeId = store.input.value; state.domains = domains.input.value; await refresh(); await render(); }, 'secondary', { id: 'refresh' }), button('Grant access to this site', () => permissions.requestSite(url.input.value).then(async granted => { if (!granted) throw new Error('Site access was declined. Cookiebase still works for other granted sites. Use Retry after granting access.'); state.url = url.input.value; await refresh(); await render(); }), 'primary', { id: 'grant-site' }), button('Grant access to all sites', () => permissions.requestAll().then(async granted => { if (!granted) throw new Error('All-sites access was declined. Choose specific sites instead.'); await refresh(); await render(); }), 'secondary', { id: 'grant-all' }));
   tools.append(button('Grant selected domains', () => permissions.requestDomains(domains.input.value.split(/[\s,]+/).filter(Boolean)).then(async granted => { if (!granted) throw new Error('Access to selected domains was declined.'); state.domains = domains.input.value; await refresh(); await render(); })), button('Grant site incl. subdomains', () => { const target = new URL(url.input.value); target.hostname = registrableDomain(target.hostname); return permissions.requestSite(target.href, { subdomains: true }).then(async granted => { if (!granted) throw new Error('Site access was declined.'); await refresh(); await render(); }); }));
   return panel('Scope & access', node('div', { class: 'cb-scope' }, url.node, choice.node, store.node, domains.node), tools, node('p', { id: 'scope-label', class: 'oj-small cb-value' }, `Scope: ${labelScope()} · Store: ${state.storeId || 'not available'}`), p(`${state.coverage?.fullAccess ? 'All HTTP(S) host access granted' : 'Limited access: only explicitly granted hosts'} · ${state.cookies.length} reachable cookies · Stores: ${state.coverage?.storeIds.join(', ') || 'none'} · ${state.status?.incognito ? 'Incognito, memory-only workspace' : 'Regular browser context'}`));
+}
+function invalidateScope() {
+  state.cookies = []; state.selected.clear();
+  updateScopeText();
+  const table = document.querySelector('#cookie-table');
+  if (table) table.replaceChildren(node('caption', {}, 'Scope changed. Use Refresh / Retry to load cookies for this scope.'));
+  const count = document.querySelector('#cookie-count');
+  if (count) count.textContent = 'Scope changed. Refresh to load the new scope.';
 }
 function updateScopeText() { const text = document.querySelector('#scope-label'); if (text) text.textContent = `Scope: ${labelScope()} · Store: ${state.storeId || 'not available'}. Refresh to load this scope.`; }
 function overviewView() {
@@ -251,10 +259,30 @@ async function profilesView() {
   }
   const search = field('Search profiles (name, description, tags, scope)', 'profile-search', '', 'search');
   const list = node('div', { class: 'cb-view' });
-  const populate = async () => { const profiles = await rpc('profiles.list', { query: search.input.value }); list.replaceChildren(...profiles.map(profile => panel(profile.name, p(profile.description || 'No description'), p(`${profile.cookieCount} cookies · ${scopeLabel(profile.scope)} · ${profile.tags.join(', ')} · Created ${profile.createdAt} · Updated ${profile.updatedAt}`), node('div', { class: 'oj-cluster' }, button('Preview / Apply', () => applyProfile(profile), 'primary'), button('Edit', () => profileEditor(profile)), button('Duplicate', async () => { await rpc('profiles.duplicate', { id: profile.id }); await populate(); }), button('Export profile', async () => { if (await consentSecrets()) download(JSON.stringify(await rpc('profiles.export', { id: profile.id }), null, 2), `${profile.name.replace(/[^a-z0-9_-]/gi, '_')}.cookiebase-profile.json`); }), button('Delete profile', async () => { if (await confirmDialog({ title: 'Delete encrypted profile?', message: profile.name, confirmLabel: 'Delete', variant: 'danger' })) { await rpc('profiles.remove', { id: profile.id }); await populate(); } }, 'danger'))))); if (!profiles.length) list.append(p('No profiles yet. Save the current scope or import a profile.')); };
+  const populate = async () => { const profiles = await rpc('profiles.list', { query: search.input.value }); const previews = new Map(); await Promise.all(profiles.map(async profile => { try { previews.set(profile.id, await rpc('profiles.preview', { id: profile.id, scope: scope(), options: { mode: 'replace' } })); } catch { /* A mismatched scope can still be inspected through explicit preview. */ } })); list.replaceChildren(...profiles.map(profile => panel(profile.name, p(profile.description || 'No description'), p(`${profile.cookieCount} cookies · ${scopeLabel(profile.scope)} · ${profile.tags.join(', ')} · Created ${profile.createdAt} · Updated ${profile.updatedAt}`), node('div', { class: 'oj-cluster' }, button('Preview / Apply', () => applyProfile(profile), 'primary'), previews.has(profile.id) ? node('div', { class: 'cb-card' }, p(`QA state preview in ${labelScope()}: ${previews.get(profile.id).additions} additions, ${previews.get(profile.id).overwrites} overwrites, ${previews.get(profile.id).removals} removals. Encrypted backup and best-effort rollback enabled. Explicit state switching can replace protected cookies; sessions may be invalid.`), button('Apply this QA state', async () => { const result = await rpc('profiles.apply', { id: profile.id, scope: scope(), options: { mode: 'replace', backup: true, rollbackOnFailure: true } }); await refresh(); await render(); report('QA state apply results', result); })) : null, button('Edit', () => profileEditor(profile)), button('Duplicate', async () => { await rpc('profiles.duplicate', { id: profile.id }); await populate(); }), button('Export profile', async () => { if (await consentSecrets()) download(JSON.stringify(await rpc('profiles.export', { id: profile.id }), null, 2), `${profile.name.replace(/[^a-z0-9_-]/gi, '_')}.cookiebase-profile.json`); }), button('Delete profile', async () => { if (await confirmDialog({ title: 'Delete encrypted profile?', message: profile.name, confirmLabel: 'Delete', variant: 'danger' })) { await rpc('profiles.remove', { id: profile.id }); await populate(); } }, 'danger'))))); if (!profiles.length) list.append(p('No profiles yet. Save the current scope or import a profile.')); };
   search.input.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => populate().catch(showError), 140); });
-  const input = field('Import Cookiebase profile file', 'profile-file', '', 'file', { accept: '.json' });
-  input.input.addEventListener('change', async () => { try { const f = input.input.files[0]; if (!f || f.size > 5 * 1024 * 1024) throw new Error('Choose a profile JSON file of at most 5 MiB.'); let data; try { data = JSON.parse(await f.text()); } catch { throw new Error('Invalid profile JSON syntax. Check quoting and brackets.'); } if (await confirmDialog({ title: 'Import session profile?', message: 'The file contains unencrypted session secrets. Import encrypts them in this vault without changing browser cookies. Supplied store and scope must match.', confirmLabel: 'Import into vault' })) { await rpc('profiles.import', { data }); await populate(); } } catch (error) { showError(error); } });
+  const input = field('Import profile or cookie file (JSON / Netscape)', 'profile-file', '', 'file', { accept: '.json,.txt' });
+  input.input.addEventListener('change', async () => {
+    try {
+      const f = input.input.files[0];
+      if (!f || f.size > 5 * 1024 * 1024) throw new Error('Choose a profile or cookie file of at most 5 MiB.');
+      const text = await f.text();
+      let data;
+      if (text.trim().startsWith('{')) {
+        try { data = JSON.parse(text); } catch { throw new Error('Invalid profile JSON syntax. Check quoting and brackets.'); }
+      }
+      if (data?.format === 'cookiebase-profile') {
+        if (await confirmDialog({ title: 'Import session profile?', message: `File contains ${data.profile?.cookies?.length ?? 0} cookies. Scope: ${scopeLabel(data.profile?.scope || {})}. Import encrypts secrets in this vault without changing browser cookies. Cross-store or incognito imports are refused.`, confirmLabel: 'Import into vault' })) {
+          await rpc('profiles.import', { data }); await populate();
+        }
+      } else {
+        const parsed = parseImport(text, { targetUrl: state.url, storeId: state.storeId });
+        if (parsed.invalid.length) { report('Cookie-file validation errors', { invalid: parsed.invalid, warnings: parsed.warnings }); return; }
+        if (parsed.cookies.some(c => !inScope(c, scope()))) throw new Error('The file contains cookies outside the selected profile scope/store. Choose the intended scope and refresh before importing.');
+        profileEditor(null, parsed.cookies);
+      }
+    } catch (error) { showError(error); }
+  });
   body.append(panel('Session profiles', search.node, node('div', { class: 'oj-cluster' }, button('Save current scope as profile', () => profileEditor(null, filtered()), 'primary'), button('Lock vault', async () => { await rpc('vault.lock'); await refresh(); await render(); })), input.node), list);
   const snapshots = await rpc('snapshots.list');
   body.append(panel('Encrypted restore snapshots / disabled cookies', p('Undo and Enable restore a prior cookie snapshot. Best effort: expired cookies, revoked permissions or server invalidation can prevent restoration.'), ...snapshots.map(s => node('div', { class: 'cb-profile' }, p(`${s.name} · ${s.cookieCount} cookies · ${s.createdAt}`), node('div', { class: 'oj-cluster' }, button(s.kind === 'disabled' ? 'Enable / restore' : 'Undo / restore', async () => { if (await confirmDialog({ title: 'Restore snapshot?', message: `Scope: ${scopeLabel(s.scope)}. Existing matching identities can be overwritten.`, confirmLabel: 'Restore & verify' })) report('Restore results', await rpc('snapshots.restore', { id: s.id })); }), button('Delete snapshot', async () => { await rpc('snapshots.delete', { id: s.id }); await render(); }, 'ghost'))))));
