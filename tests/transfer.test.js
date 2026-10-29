@@ -125,6 +125,9 @@ test('incognito transfers and mismatched stores are refused by default', () => {
   assert.match(plan.invalid[0].error, /Incognito/);
   const otherStore = previewImport(parseImport(JSON.stringify([{ ...fixture[0], storeId: '99' }])), [], { scope });
   assert.equal(otherStore.counts.valid, 0);
+  const taggedIncognito = previewImport(parseImport(JSON.stringify([{ ...fixture[0], incognito: true }])), [], { scope });
+  assert.equal(taggedIncognito.counts.valid, 0);
+  assert.match(taggedIncognito.invalid[0].error, /Incognito/);
 });
 
 test('redacted export has no values and is rejected as a restore source', () => {
@@ -147,4 +150,8 @@ test('Netscape refuses lossy partition or tab/newline exports; unknown versions 
   assert.throws(() => exportCookies([{ ...fixture[0], value: 'a\tb' }], { scope, format: 'netscape' }), /tabs/);
   assert.match(parseImport('{"format":"cookiebase","version":999,"cookies":[]}').invalid[0].error, /version/);
   assert.match(parseImport('a'.repeat(10 * 1024 * 1024 + 1)).invalid[0].error, /10 MiB/);
+  assert.match(parseImport('invalid\n'.repeat(20001)).invalid[0].error, /20,000/);
+  const invalidRows = parseImport('bad\n'.repeat(10001));
+  assert.equal(invalidRows.invalid.length, 10001);
+  assert.match(invalidRows.invalid.at(-1).error, /10,000/);
 });

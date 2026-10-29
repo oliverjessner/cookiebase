@@ -40,3 +40,17 @@ export function deletePreview(cookies, rules = [], options = {}) {
     warning: options.overrideProtection ? 'Protection override: matching allowlist rules will be ignored.' : '',
   };
 }
+
+/** Import replacement obeys the same safe default as cleanup. Explicit override is visible in preview. */
+export function protectImportPlan(plan, rules, { overrideProtection = false } = {}) {
+  const protectedRemovals = plan.removals.filter(cookie => protectedBy(cookie, rules).length);
+  const protectedOverwrites = plan.actions.filter(action => action.action === 'overwrite' && protectedBy(action.previous || action.cookie, rules).length);
+  const result = { ...plan, warnings: [...plan.warnings], counts: { ...plan.counts, protectedRemovals: protectedRemovals.length, protectedOverwrites: protectedOverwrites.length },
+    actions: plan.actions.map(action => !overrideProtection && protectedOverwrites.includes(action) ? { ...action, action: 'skip', reason: 'Protected by allowlist' } : action),
+    removals: overrideProtection ? plan.removals : plan.removals.filter(cookie => !protectedRemovals.includes(cookie)) };
+  result.counts.removed = result.removals.length;
+  result.counts.overwritten = result.actions.filter(action => action.action === 'overwrite').length;
+  result.counts.skipped = result.actions.filter(action => action.action === 'skip').length;
+  if (protectedRemovals.length || protectedOverwrites.length) result.warnings.push(overrideProtection ? 'PROTECTION OVERRIDE: this import may remove or overwrite protected cookies.' : 'Protected cookies will be preserved. An explicit protection override is required to replace them.');
+  return result;
+}

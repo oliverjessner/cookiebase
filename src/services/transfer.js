@@ -3,7 +3,7 @@ import { cookieId, inScope, validateCookie, cookieUrl, normalizeCookie } from '.
 export const FORMAT_VERSION = 1;
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_IMPORT_COOKIES = 10000;
-const FIELDS = ['name', 'value', 'domain', 'path', 'secure', 'httpOnly', 'sameSite', 'session', 'expirationDate', 'hostOnly', 'storeId', 'partitionKey'];
+const FIELDS = ['name', 'value', 'domain', 'path', 'secure', 'httpOnly', 'sameSite', 'session', 'expirationDate', 'hostOnly', 'storeId', 'partitionKey', 'incognito'];
 
 function safeRecord(cookie) {
   return Object.fromEntries(FIELDS.filter(key => cookie[key] !== undefined).map(key => [key, structuredClone(cookie[key])]));
@@ -39,6 +39,8 @@ function normalise(input, options) {
   output.session ??= output.expirationDate === undefined;
   if (output.session) delete output.expirationDate;
   output.storeId = String(output.storeId ?? options.storeId ?? '0');
+  if (output.incognito !== undefined && typeof output.incognito !== 'boolean') throw new Error('Incognito context must be an explicit boolean.');
+  if (output.partitionKey && (typeof output.partitionKey !== 'object' || Array.isArray(output.partitionKey) || typeof output.partitionKey.topLevelSite !== 'string')) throw new Error('Partition key must contain a topLevelSite HTTP(S) origin.');
   if (input.partitioned === true && !output.partitionKey) throw new Error('Partitioned cookie requires an explicit partitionKey; it cannot be inferred.');
   const errors = validateCookie(output);
   if (errors.length) throw new Error(errors.join(' '));
@@ -90,8 +92,19 @@ export function parseImport(text, options = {}) {
   } else {
     result.format = 'netscape';
     records = [];
+    let physicalLines = 1;
+    for (const char of text) {
+      if (char === '\n' && ++physicalLines > MAX_IMPORT_COOKIES * 2) {
+        result.invalid.push(issue(0, null, 'Netscape input exceeds 20,000 physical lines. Split the file into smaller scopes.'));
+        return result;
+      }
+    }
     for (const [lineIndex, original] of text.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {
       if (!original.trim() || (original.startsWith('#') && !original.startsWith('#HttpOnly_'))) continue;
+      if (records.length + result.invalid.length >= MAX_IMPORT_COOKIES) {
+        result.invalid.push(issue(lineIndex + 1, null, 'Import exceeds 10,000 cookie records. Split the file into smaller scopes.'));
+        return result;
+      }
       const httpOnly = original.startsWith('#HttpOnly_');
       const line = httpOnly ? original.slice('#HttpOnly_'.length) : original;
       const parts = line.split('\t');
@@ -132,7 +145,7 @@ export function previewImport(parsed, existing, options = {}) {
   const incognitoSource = parsed.metadata?.scope?.incognito === true;
   for (const [index, cookie] of parsed.cookies.entries()) {
     let error;
-    if ((incognitoSource || cookie.storeId === '1') && !allowIncognitoTransfer && scope.incognito !== true) error = 'Incognito cookies cannot be imported into the regular store without explicit transfer consent.';
+    if ((incognitoSource || cookie.incognito === true || cookie.storeId === '1') && !allowIncognitoTransfer && scope.incognito !== true) error = 'Incognito cookies cannot be imported into the regular store without explicit transfer consent.';
     else if (scope.incognito === true && !allowIncognitoTransfer && !incognitoSource) error = 'Regular-to-incognito transfer requires explicit consent.';
     else if (!inScope(cookie, scope)) error = 'Cookie is outside the chosen scope or store. Change the scope explicitly; no cookie was remapped.';
     if (error) { plan.invalid.push(issue(index + 1, cookie, error)); continue; }
@@ -184,10 +197,10 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
       await repository.remove(cookie);
       report.removed++;
       report.results.push({ name: cookie.name, domain: cookie.domain, status: 'removed' });
-    } catch {
+    } catch (error) {
       // API messages may include the submitted cookie. Keep transfer reports
       // value-free; repository diagnostics remain available in the action view.
-      record({ name: cookie.name, domain: cookie.domain, status: 'failed', error: 'Removal failed or could not be verified. Check host permission, store, partition and browser policy.' });
+      record({ name: cookie.name, domain: cookie.domain, status: 'failed', error: safeOperationError(error, cookie, 'removed') });
     }
   }
   if (report.failed && plan.mode === 'replace') {
@@ -211,7 +224,7 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
   return report;
 }
 
-function safeOperationError(error, cookie) {
+function safeOperationError(error, cookie, operation = 'set') {
   // Only allow known value-free diagnostics. An arbitrary Chrome/provider error
   // is never serialized, since it could echo set() input or credentials.
   const message = typeof error?.message === 'string' ? error.message : '';
@@ -221,7 +234,7 @@ function safeOperationError(error, cookie) {
   if (/expir/i.test(message)) return 'Cookie expiration is invalid, expired or was changed by the browser.';
   if (/verif|read.?back|mismatch/i.test(message)) return 'Read-back verification failed. The browser rejected, adjusted or immediately changed this cookie.';
   if (validateCookie(cookie).length) return validateCookie(cookie).join(' ');
-  return 'Cookie could not be set and verified. Check domain/path, Secure/SameSite rules, target permission, partition, store and browser policy.';
+  return `Cookie could not be ${operation} and verified. Check domain/path, Secure/SameSite rules, target permission, partition, store and browser policy.`;
 }
 
 export function exportCookies(cookies, { format = 'json', redacted = false, scope, profile } = {}) {

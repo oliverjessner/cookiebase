@@ -1,7 +1,7 @@
 import { createStorage } from './storage.js';
 import { createRepository } from './core/repository.js';
 import { cookieId } from './core/cookies.js';
-import { deletePreview, validateRule } from './core/rules.js';
+import { deletePreview, validateRule, protectImportPlan } from './core/rules.js';
 import { parseImport, previewImport, executeImport } from './services/transfer.js';
 import { createVault } from './services/vault.js';
 import { createProfileService } from './services/profiles.js';
@@ -16,6 +16,11 @@ const profiles = createProfileService({ vault, repository });
 const history = createHistoryService(storage);
 let queue = Promise.resolve();
 let initialized;
+let historyEnabled = null;
+let eventQueue = [];
+let draining = false;
+let droppedEvents = 0;
+let recordingError = null;
 const metadataKey = incognito ? 'metadataIncognito' : 'metadata';
 async function metadata() {
   const saved = incognito ? await storage.get(metadataKey) : (await chrome.storage.local.get(metadataKey))[metadataKey];
@@ -29,7 +34,7 @@ async function initialize() {
     for (const job of jobs) if (job.status === 'running') { job.status = 'interrupted'; job.message = 'Worker stopped before final verification. Inspect current cookies and restore an encrypted snapshot if needed. Nothing is automatically replayed.'; }
     await storage.set('jobs', jobs);
     await metadata();
-    await history.configure({});
+    historyEnabled = (await history.configure({})).enabled;
   })();
   return initialized;
 }
@@ -48,7 +53,7 @@ async function requireSnapshot(name, scope, cookies, kind) {
 }
 async function handle({ type, payload: p = {} }) {
   switch (type) {
-    case 'status': return { vault: await vault.status(), history: await history.status(), metadata: await metadata(), incognito, jobs: await storage.get('jobs') || [] };
+    case 'status': return { vault: await vault.status(), history: { ...await history.status(), droppedEvents, recordingError }, metadata: await metadata(), incognito, jobs: await storage.get('jobs') || [] };
     case 'list': return list(p.scope, p.tabId);
     case 'set': {
       if (p.original && cookieId(p.original) !== cookieId(p.cookie)) throw new Error('Changing cookie identity requires Create followed by an explicit deletion of the original.');
@@ -105,14 +110,14 @@ async function handle({ type, payload: p = {} }) {
     case 'snapshots.delete': return profiles.deleteSnapshot(p.id);
     case 'import.preview': {
       const parsed = parseImport(p.text, p.options);
-      return previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) });
+      return protectImportPlan(previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) }), (await metadata()).rules, p.options);
     }
     case 'import.execute': {
       const parsed = parseImport(p.text, p.options);
-      const plan = previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) });
+      const plan = protectImportPlan(previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) }), (await metadata()).rules, p.options);
       return executeImport(plan, { repository, snapshot: p.backup || plan.mode === 'replace' ? cookies => requireSnapshot('Before import', p.scope, cookies, 'import') : undefined });
     }
-    case 'history.configure': return history.configure(p);
+    case 'history.configure': { const policy = await history.configure(p); historyEnabled = policy.enabled; if (!historyEnabled) eventQueue = []; return policy; }
     case 'history.list': return history.list({ ...p, incognito });
     case 'history.capture': return history.capture({ name: p.name, scope: scoped(p.scope), cookies: (await list(p.scope, p.tabId)).cookies });
     case 'history.snapshots': return history.snapshots();
@@ -122,7 +127,7 @@ async function handle({ type, payload: p = {} }) {
       if (p.area === 'rules') { const m = await metadata(); m.rules = []; await saveMetadata(m); }
       else if (p.area === 'history') { await history.configure({ enabled: false }); await history.clear({ incognito }); await history.clearSnapshots(); }
       else if (p.area === 'vault') await vault.reset();
-      else if (p.area === 'all') { await vault.lock(); await history.clear({ incognito }); await history.clearSnapshots(); await storage.clear(); await chrome.storage.local.remove(metadataKey); initialized = undefined; }
+      else if (p.area === 'all') { await vault.lock(); await history.clear({ incognito }); await history.clearSnapshots(); eventQueue = []; historyEnabled = false; recordingError = null; droppedEvents = 0; await storage.clear(); await chrome.storage.local.remove(metadataKey); initialized = undefined; }
       else throw new Error('Choose rules, history, vault, or all Cookiebase data.');
       return true;
     }
@@ -146,9 +151,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   queue.then(result => sendResponse({ ok: true, result }), error => sendResponse({ ok: false, error: error.message || 'Browser operation failed. Check host permission, store and browser policy.' }));
   return true;
 });
+async function drainEvents() {
+  if (draining) return;
+  draining = true;
+  try {
+    await initialize();
+    if (!historyEnabled) { eventQueue = []; return; }
+    const stores = await repository.stores();
+    const allowed = new Set(stores.filter(s => s.contextKnown && s.incognito === incognito).map(s => s.id));
+    while (eventQueue.length && historyEnabled) {
+      const { change, observedAt } = eventQueue.shift();
+      if (allowed.has(change.cookie.storeId)) await history.record(change, { incognito, observedAt });
+    }
+  } catch {
+    recordingError = 'Cookie history could not be recorded. Check local storage availability and restart recording. No cookie values were logged.';
+    droppedEvents += eventQueue.length;
+    eventQueue = [];
+  } finally { draining = false; }
+}
 chrome.cookies.onChanged.addListener(change => {
-  const observedAt = Date.now();
-  // Values are handed only to the redacting history service; never logged or journaled.
-  queue = queue.catch(() => {}).then(async () => { await initialize(); const store = (await repository.stores()).find(s => s.id === change.cookie.storeId); if (store?.contextKnown && store.incognito === incognito) await history.record(change, { incognito, observedAt }); }).catch(() => {});
+  if (historyEnabled === false) return;
+  // Bounded, separate event queue: UI/mutation RPCs do not wait behind event storms.
+  if (eventQueue.length >= 256) { eventQueue.shift(); droppedEvents++; }
+  eventQueue.push({ change, observedAt: Date.now() });
+  void drainEvents();
 });
 chrome.runtime.onInstalled.addListener(() => { initialize().catch(() => {}); });
