@@ -138,7 +138,7 @@ export const test = base.extend({
   },
   popup: async ({ context, extensionId }, use) => {
     const page = await context.newPage();
-    await page.setViewportSize({ width: 420, height: 720 });
+    await page.setViewportSize({ width: 560, height: 600 });
     await page.goto(`chrome-extension://${extensionId}/popup.html`);
     await expect(page.locator('#main')).toBeVisible();
     await use(page);

@@ -82,3 +82,11 @@ No native prompt acceptance/denial, installed Google Chrome 132/current stable b
 ## Release checks
 
 The release artifact is a locally generated ZIP plus unpacked `dist/`; it is not published. `npm run package` rebuilds and writes the archive and SHA-256. Executed `npm run package`, `unzip -t artifacts/cookiebase-0.1.0.zip`, `npm run lint`, `npm run check:plan` and `git diff --check`: all passed. The archive checksum is stored alongside the ZIP; the final commit sequence is in the implementation record. Dependency notices are included. Cookiebase itself has no declared project licence in the initial repository; choosing one remains an owner decision.
+
+## Popup sizing correction — 29 October 2026
+
+The user reported the actual toolbar popup collapsing into a narrow column. A new test opens the genuine native action surface using Chrome's documented [action.openPopup](https://developer.chrome.com/docs/extensions/reference/api/action#method-openPopup), then attaches to its target with CDP without setting a viewport. This reproduced a **178 px** viewport/body/document width in the previous build. Earlier popup tests used a prescribed browser-tab viewport and therefore missed this intrinsic sizing failure.
+
+Removed the popup's `min(560px,100vw)` dependency and gave its HTML root and body an explicit 560 px width. The manager's responsive layout remains separate. The native popup now measures **560 px** for viewport, body and document, with its Manager button beside the brand. The test also checks Chrome's height bound and writes an actual native-popup screenshot. The tab-based popup fixture now matches the intended 560 x 600 surface.
+
+Executed `npm run build`, `npx playwright test tests/e2e/popup-sizing.spec.js tests/e2e/reliability.spec.js -g 'native toolbar popup|all manager workspaces' --reporter=line --output=artifacts/popup-sizing-after`, `npm run lint` and `git diff --check`: **2/2 targeted browser checks pass**, including all-workspace/popup axe checks. The native screenshot was opened and visually inspected; preserved as [native popup](evidence/popup-native.png). The previously reported 47/20 full-suite results are the initial implementation run; this follow-up used the relevant focused checks.

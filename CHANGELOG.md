@@ -4,6 +4,8 @@
 
 Initial working Manifest V3 implementation.
 
+- Fixed native toolbar popup sizing: explicit 560 px document width prevents the initial narrow viewport from locking the popup to 178 px. Added an actual native-popup regression test.
+
 - Local OJ popup/manager, optional host grants, PSL scopes, mask/reveal, complete attribute inspection and bounded paginated search.
 - Verified cookie creation/editing, safe same-name/path deletion, allowlist rules, delete previews, encrypted restore snapshots and Disable/Enable.
 - Versioned Cookiebase/Cookie-Editor JSON and Netscape file/drop/paste import, per-cookie reports, verified writes, clipboard/download export and secret warnings.
