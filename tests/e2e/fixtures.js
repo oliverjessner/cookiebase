@@ -9,6 +9,7 @@ export { expect };
 export const FIXTURE_ORIGINS = [
   'http://localhost/*', 'https://localhost/*', 'http://*.localhost/*', 'https://*.localhost/*',
   'http://*.cookiebase.test/*', 'https://*.cookiebase.test/*',
+  ...Array.from({ length: 25 }, (_, i) => `http://load${i}.test/*`),
 ];
 
 /** Exercise the same runtime messaging path as the production UI. */
@@ -117,7 +118,7 @@ export const test = base.extend({
       args: [
         `--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`,
         '--ignore-certificate-errors', '--no-proxy-server',
-        '--host-resolver-rules=MAP *.cookiebase.test 127.0.0.1,MAP cookiebase.test 127.0.0.1',
+        '--host-resolver-rules=MAP *.test 127.0.0.1',
       ],
     });
     try { await use(context); }

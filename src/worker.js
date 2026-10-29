@@ -137,6 +137,7 @@ async function handle({ type, payload: p = {} }) {
 }
 const readOnly = new Set(['status', 'list', 'delete.preview', 'profiles.list', 'profiles.preview', 'profiles.export', 'snapshots.list', 'import.preview', 'history.list', 'history.snapshots', 'history.compare']);
 async function dispatch(message) {
+  if (message.type === 'data.clear' && message.payload?.area === 'all') return handle(message);
   await initialize();
   if (readOnly.has(message.type) || message.type.startsWith('vault.') || (message.type === 'data.clear' && message.payload?.area === 'all')) return handle(message);
   const jobs = await storage.get('jobs') || [];

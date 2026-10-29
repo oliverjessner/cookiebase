@@ -211,7 +211,7 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
   for (const action of plan.actions) {
     const { cookie } = action;
     const identity = { name: cookie.name, domain: cookie.domain, storeId: cookie.storeId, partitionKey: cookie.partitionKey };
-    if (action.action === 'skip') { record({ ...identity, status: 'skipped', reason: 'Duplicate identity already exists.' }); continue; }
+    if (action.action === 'skip') { record({ ...identity, status: 'skipped', reason: action.reason || 'Duplicate identity already exists.' }); continue; }
     try {
       await repository.set(cookie);
       await repository.verify(cookie);

@@ -110,3 +110,30 @@ test('redirect-independent target import, later server change and invalid replac
   expect((await rpc(manager, 'list', { scope: scopeFor(urls.secure) })).cookies.find(c => c.name === outside.name)?.value).toBe(outside.value);
   expect((await rpc(manager, 'list', { scope })).cookies.find(c => c.name === cookie.name)?.value).toBe('redirected');
 });
+
+test('replace imports preserve protected consent cookies unless an explicit override is chosen', async ({ manager, httpsURL }) => {
+  await grant(manager);
+  const scope = scopeFor(httpsURL);
+  await rpc(manager, 'vault.initialize', { passphrase: 'Controlled import backup passphrase 2026' });
+  const consent = cookieFor(httpsURL, { name: 'protected-consent', value: 'keep-essential', httpOnly: false });
+  const disposable = cookieFor(httpsURL, { name: 'disposable-import', value: 'discard' });
+  await rpc(manager, 'set', { cookie: consent });
+  await rpc(manager, 'set', { cookie: disposable });
+  await rpc(manager, 'rules.save', { rule: { domain: consent.domain, name: consent.name, path: '/', storeId: '0' } });
+  const empty = { text: '[]', scope, options: { mode: 'replace' } };
+  const preview = await rpc(manager, 'import.preview', empty);
+  expect(preview.counts.protectedRemovals).toBe(1);
+  expect(preview.counts.removed).toBe(1);
+  const result = await rpc(manager, 'import.execute', empty);
+  expect(result.failed).toBe(0);
+  expect(result.removed).toBe(1);
+  const remaining = (await rpc(manager, 'list', { scope })).cookies;
+  expect(remaining.map(cookie => cookie.name)).toEqual([consent.name]);
+  const overwrite = { text: JSON.stringify([{ ...consent, value: 'overwritten-explicitly' }]), scope, options: { mode: 'merge' } };
+  const preserved = await rpc(manager, 'import.execute', overwrite);
+  expect(preserved.skipped).toBe(1);
+  expect((await rpc(manager, 'list', { scope })).cookies[0].value).toBe(consent.value);
+  const overridden = await rpc(manager, 'import.execute', { ...overwrite, options: { mode: 'merge', overrideProtection: true } });
+  expect(overridden.overwritten).toBe(1);
+  expect((await rpc(manager, 'list', { scope })).cookies[0].value).toBe('overwritten-explicitly');
+});

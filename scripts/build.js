@@ -6,5 +6,7 @@ await build({ entryPoints: { ui: 'src/ui/app.js', worker: 'src/worker.js' }, out
 await copyFile('src/manifest.json', 'dist/manifest.json');
 for (const page of ['popup', 'manager']) await writeFile(`dist/${page}.html`, `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cookiebase · ${page === 'popup' ? 'Current site' : 'Manager'}</title><link rel="stylesheet" href="ui.css"></head><body class="oj-app" data-page="${page}"><a class="oj-skip-link" href="#main">Skip to content</a><div id="app"></div><script type="module" src="ui.js"></script></body></html>\n`);
 await cp('node_modules/oj-designsystem/dist/licenses', 'dist/licenses', { recursive: true });
+await copyFile('node_modules/oj-designsystem/LICENSE', 'dist/licenses/OJ-LICENSE.txt');
+await copyFile('node_modules/tldts/LICENSE', 'dist/licenses/TLDTS-LICENSE.txt');
 await copyFile('node_modules/oj-designsystem/THIRD-PARTY-NOTICES.md', 'dist/licenses/OJ-NOTICES.md');
 console.log('Built local MV3 extension in dist/.');

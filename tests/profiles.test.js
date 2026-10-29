@@ -93,3 +93,24 @@ test('stored expired cookies do not prevent renaming or duplicating a profile', 
   assert.equal(copied.cookieCount, 1);
   assert.equal((await service.get(copied.id)).name, 'Archived QA state copy');
 });
+test('broad manager Replace cannot widen a saved site profile to unrelated sites', async () => {
+  const unrelated = { ...cookie, domain:'other.test',value:'outside' };
+  const { service,state } = await setup([cookie,unrelated]);
+  const item = await service.create({name:'Logged out',scope,cookies:[]});
+  const broad = {type:'all',storeId:'0',incognito:false};
+  const preview = await service.preview(item.id,{scope:broad,mode:'replace'});
+  assert.equal(preview.removals,1);
+  await service.apply(item.id,{scope:broad,mode:'replace'});
+  assert.equal(state.has(cookieId(cookie)),false);
+  assert.equal(state.get(cookieId(unrelated)).value,'outside');
+});
+test('expired profile apply and stale replacement preview never remove current cookies', async () => {
+  const {service,vault,state} = await setup([cookie]);
+  const item = await service.create({name:'Expired',scope,cookies:[{...cookie,session:false,expirationDate:Date.now()/1000+3600}]});
+  await vault.update(data => {data.profiles[0].cookies[0].expirationDate=1;});
+  const result = await service.apply(item.id,{scope,mode:'replace',backup:false});
+  assert.equal(result.failed,1);assert.equal(result.removed,0);assert.equal(state.get(cookieId(cookie)).value,cookie.value);
+  const empty = await service.create({name:'Empty',scope,cookies:[]});
+  await assert.rejects(service.apply(empty.id,{scope,mode:'replace',expectedRemovalIds:[]}),/state changed/);
+  assert.equal(state.get(cookieId(cookie)).value,cookie.value);
+});
