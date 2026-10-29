@@ -50,3 +50,9 @@ Parsing and preview never change browser cookies. Preview shows domains, stores,
 The report records imported, overwritten, skipped, failed and removed operations. A successful write requires a real Chrome API read-back verification. One failed cookie does not turn other failed cookies into successes. Restore/import is best effort: Chrome policies, unsupported contexts, expired credentials and subsequent server or JavaScript changes can prevent or undo the desired state. Cookiebase does not perform a transactional rollback of browser cookies.
 
 The parser rejects inputs over 10 MiB or 10,000 cookie records. Netscape input is additionally limited to 20,000 physical lines, including comments, to bound error-report memory. File inputs in the manager are capped at 5 MiB. JSON parsing errors are reported without echoing source text or cookie values.
+
+## Explicit UX transfer choices
+
+The UI offers three distinct import strategies: Add missing only, Add and overwrite matching, Replace chosen scope. The internal `overwrite` alias remains accepted for compatibility. Import owns its destination scope independently of the current Manager context. Source-domain preservation is the default; optional `remapDomain:true` explicitly copies to the supplied target host, previews source/target metadata and requires confirmation. Store IDs and privacy metadata are never silently remapped. Replace visibly requires an encrypted backup and context unlock.
+
+Exports explicitly select whole scope, filtered results or all selected identities in the scope; hidden selections are not silently intersected with current filters. Purpose is either a redacted informational report or working cookies with deliberate secret confirmation. New profile/restore previews and progress/results are human-readable, with JSON only as optional technical details.

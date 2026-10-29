@@ -1,12 +1,12 @@
 # Architecture
 
-Cookiebase is a local Manifest V3 extension. One vanilla ESM UI entry serves a current-site popup and a standalone manager tab. The manager can target a supplied HTTP(S) URL without opening that website. The workspace navigation is Overview, Cookies, Rules, Profiles, Debug and Settings.
+Cookiebase is a local Manifest V3 extension. One vanilla ESM entry serves a native current-site side panel and a standalone manager tab. `components.js` supplies safe OJ composition, while `editor.js`, `transfer.js`, `profiles.js`, `vault.js` and `workspaces.js` own focused UI workflows; pure `model.js` defines exact data-source and tab-binding behavior. Toolbar action opens the side panel. `popup.html` remains only a legacy compatibility URL and is not a toolbar popup. The manager can target a supplied HTTP(S) URL without opening that website. The workspace navigation is Cookies, Rules, Profiles, Debug and Settings; Cookies is the direct entry.
 
 ## Components and data flow
 
 ```mermaid
 flowchart TD
-  UI[Popup / Manager\nOJ controls and safe DOM] -->|User gesture| Permissions[Chrome optional host permissions]
+  UI[Side panel / Manager\nOJ controls and safe DOM] -->|User gesture| Permissions[Chrome optional host permissions]
   UI -->|Validated command and request ID| Worker[MV3 service worker\nSerialized command queue]
   Worker --> Repository[Verified cookie repository]
   Repository --> Cookies[Chrome cookies API\nCurrent browser profile and store]
@@ -61,9 +61,9 @@ Database writes resolve after transaction completion. Quota, policy, blocked-upg
 
 ## MV3 lifecycle and concurrency
 
-Runtime messages, `cookies.onChanged` and installation listeners are registered at worker top level. Production accepts messages only from this extension's own pages. Commands are serialized and a running journal entry is saved before a mutation. A handler returning a per-cookie report can complete with individual failures; inspect that report rather than treating journal completion as universal cookie success.
+Runtime messages, `cookies.onChanged` and installation listeners are registered at worker top level. Production accepts messages only from this extension's own pages. Mutating commands are serialized and a running journal entry is saved before a mutation. Read-only status/progress requests bypass that queue, allowing genuine progress updates while a job is running. Only numeric operation counters enter the progress/summary journal; no values or payloads. A job with individual failures is `completed_with_errors`, not plain completed. A handler returning a per-cookie report can complete with individual failures; inspect that report rather than treating journal completion as universal cookie success.
 
-Closing the popup does not cancel an accepted worker operation. If the worker terminates mid-operation, the next initialization marks any running job **interrupted**. It does not replay the mutation automatically or claim an atomic result. Inspect real cookies and use an earlier encrypted snapshot where available. Recent duplicate request IDs are rejected within the retained journal; this is not a permanent exactly-once guarantee.
+Closing a side panel/manager page does not cancel an accepted worker operation. If the worker terminates mid-operation, the next initialization marks any running job **interrupted**. It does not replay the mutation automatically or claim an atomic result. Inspect real cookies and use an earlier encrypted snapshot where available. Recent duplicate request IDs are rejected within the retained journal; this is not a permanent exactly-once guarantee.
 
 Cookie events use a separate queue, bounded to **256 pending events**, so an event storm cannot place thousands of callbacks ahead of UI commands. Recording OFF has a fast path that ignores events. If the queue fills, the oldest pending event is dropped and the current worker reports a dropped-event count. Recording failures produce a value-free status message. Event processing is best effort across termination, concurrent changes and browser policies.
 
@@ -75,6 +75,14 @@ History views exclude events older than retention. Stored history is physically 
 
 [`build.js`](../scripts/build.js) bundles ESM and `oj-designsystem@0.2.1` CSS, Comfortaa, JetBrains Mono and Font Awesome into `dist/`. It emits local HTML entries and retains OJ/third-party licence notices. Product CSS adds layout and cookie-specific presentation, without copying an OJ component framework. No content script, backend, remote font or remote runtime dependency is required.
 
-The source manifest has only `cookies`, `storage`, `activeTab` and optional HTTP(S) host permissions. CSP permits local scripts and blocks extension-page connections. [`audit-build.js`](../scripts/audit-build.js) checks manifest boundaries, unsafe DOM/code patterns, local assets and generated HTML. These checks complement browser tests; they are not a complete security proof.
+The source manifest has only `cookies`, `storage`, `activeTab`, `sidePanel` and optional HTTP(S) host permissions. CSP permits local scripts and blocks extension-page connections. [`audit-build.js`](../scripts/audit-build.js) checks manifest boundaries, unsafe DOM/code patterns, local assets and generated HTML. These checks complement browser tests; they are not a complete security proof.
 
 Unit tests and real persistent-context Chromium tests are under [`tests`](../tests). Browser cookie tests use controlled local HTTP/HTTPS responses and actual Chrome APIs. Native host-permission acceptance/denial needs separate manual verification; cookie-operation tests pregrant only fixture hosts through a temporary manifest copy. Final executed results and evidence belong in [TEST_REPORT.md](TEST_REPORT.md), not in an inferred support claim.
+
+## UX data and compatibility
+
+`ui-preferences` in regular `chrome.storage.local` stores version 1 column selection and grouping only; sensitive search text and cookie values are never persisted there. Incognito preferences stay transient. `chrome.storage.session` carries a one-use, privacy-context checked scope/filter/selection handoff token for at most 60 seconds between side panel and manager; no cookie payload is transferred. All-own-data reset removes regular UI preferences and same-context handoff entries too.
+
+History configuration adds an explicit `recordingScope`; legacy configurations are honestly treated as All granted sites. Scope is applied before HMAC or event persistence. Only origin/path context is kept, never URL credentials, query or fragment. Display filters are separate from recording scope.
+
+Encrypted snapshots add `completeScope`, optional `boundaryScope`, `restoredAt` and `restoredMode`. Legacy/partial snapshots default incomplete and support merge-only restoration. A complete backup can replace only its captured scope intersection, with per-cookie preview and explicit approval for protected changes. The version 1 envelope/key derivation and existing profile data remain compatible.

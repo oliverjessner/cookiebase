@@ -1,92 +1,90 @@
 # Verification report — 29 October 2026
 
-## Final integrated result
+## Latest integrated result: all 43 UX findings
 
-**47/47 Node unit/integration tests and 20/20 actual MV3 Chromium E2E tests passed.** No skipped or failing test in the final integrated run. Lint, local asset/CSP audit and build passed. The source uses the published/pinned `oj-designsystem@0.2.1`; no other UI framework.
+**63/63 Node unit/integration tests and 37/37 actual MV3 Chromium browser tests passed.** The final browser run had zero skipped, unexpected or flaky tests. Lint, local asset/CSP audit and build passed. This supersedes the initial 47/20 result and later two-test popup correction: the toolbar now opens the native side panel.
 
-Environment: macOS arm64; Node `26.12.0`, npm `11.20.0`, Playwright `1.64.1`, its standard Chromium revision `1248` / `156.0.8078.4`. Target minimum Chrome 132 is documented, not tested as a second engine. No personal logins, production websites or existing browser profiles were used.
+All 43 findings are mapped to implementation and executable evidence in [UX_IMPLEMENTATION.md](UX_IMPLEMENTATION.md). Shared UI uses pinned, locally bundled `oj-designsystem@0.2.1` only. No production cookie or permission API is mocked.
 
-Actual commands executed:
+Environment: macOS arm64; Node `26.12.0`, npm `11.20.0`, Playwright `1.64.1`, standard Chromium revision `1248` / `156.0.8078.4`. Chrome 132 is the manifest baseline, not a separately tested engine. Tests use isolated browser profiles and controlled local HTTP/HTTPS sites; they do not access personal accounts or existing browser data.
+
+Executed against the integrated code:
 
 ```sh
-npm run check:plan
-npm install
+npm run build
 npm run lint
 npm test
-npm run build
 npm run test:e2e
 ```
 
-Final unit run: 47 pass, 0 fail, 0 skipped, approximately 0.86 s. Final Chromium run: 20 pass, 0 fail, 0 skipped, approximately 31.1 s. Targeted phase tests were also run during implementation; the final integrated result supersedes intermediate failures. Packaging and archive-integrity checks also passed as recorded below.
+The final unit run took approximately 1.2 s. The browser run started at `2026-10-29T20:56:43.770Z` and took **60.94 s**. Machine-readable final counts/environment are preserved in [ux-verification-summary.json](evidence/ux-verification-summary.json). Focused intermediate runs are superseded by this complete run.
 
-## What was tested
+## Coverage
 
-- `tests/core.test.js`, `repository.test.js`: PSL/private suffixes, identities across paths/stores/partitions, scopes, wildcard/optional-value search, boolean/date filters, validation, synchronous permission calls, real-adapter reread/error paths and protection matching. Adapter unit fixtures are test doubles, clearly separate from the real-browser suite.
-- `tests/transfer.test.js`, `transferProtection.test.js`: Cookie-Editor/native JSON, Netscape, absolute/relative expiration, per-record validation, replace preflight, correct conflicts, protected replacement, incognito refusal, redacted/lossy formats, verified result accounting.
-- `tests/vault.test.js`, `profiles.test.js`, `history.test.js`: PBKDF2/AES-GCM/tamper/wrong-passphrase/concurrent writes, encrypted metadata, failed storage, CRUD, A/B apply/verify/rollback, original-scope intersection, expired/stale-preview preflight, correlated and redacted events, retention and HMAC diffs.
-- `tests/e2e/core.spec.js` (6): unchanged no-host production build popup/manager and local OJ assets; actual same-name/path protection and deletion; actual Disable/restore and CHIPS/unpartitioned separation; rejected host/store writes; server Set-Cookie on three related/unrelated hosts; all CREATE advanced controls, secret reveal/remask, actual saved attrs, wildcard search and Escape.
-- `tests/e2e/transfer.spec.js` (4): actual file picker/drop, previews and per-record errors; clipboard contents and distinct feedback; real downloaded JSON/Netscape roundtrip; controlled OAuth-like redirect, later server overwrite, explicit target independent of active tab; invalid replace preserves unrelated hosts; protected replacement and explicit override.
-- `tests/e2e/profiles-debug.spec.js` (3): actual A/B application, backup restore, wrong passphrase, profile CRUD/export/import; raw IDB/storage contains neither secrets nor encrypted profile metadata; actual events/overwrite/diff/retention/stop; actual complete Chromium close/restart with same disk profile, locked vault, unlock and apply.
-- `tests/e2e/history-recovery.spec.js` (3): 4,000 actual writes with responsive UI and bounded/redacted history; actual import interrupted after real writes with no success reply/no replay; generic JSON/Netscape profile file UI and direct QA apply.
-- `tests/e2e/incognito.spec.js` (1): normal `chrome://extensions` UI toggles Developer mode/Allow in incognito; genuine off-the-record context, separate stores, actual private set/delete, refused cross-store writes, unavailable private vault and unchanged normal cookie.
-- `tests/e2e/reliability.spec.js` (3): axe serious/critical checks for all six manager workspaces + popup, keyboard-only dialog trap/Escape/focus return and search; local fonts/resources; actual 2,500-cookie search/render; popup-close accepted operation completes in worker, metadata-only journal and all-own-data reset leaves browser cookies.
+- Core/repository: PSL/private suffixes, complete cookie identity, stores/partitions, exact scopes, wildcard/value search, filters/sort, validation, host checks, read-back verification, protection and exact deletion preserving siblings. Unit adapter fixtures are test doubles; browser cases use actual Chrome APIs.
+- Transfer/editor: native/Cookie-Editor JSON and Netscape, file picker/drop/clipboard/download, per-record validation, explicit destination independent of manager scope, confirmed remapping, three strategies, permission preflight, protected changes, mandatory Replace backup, complete actual attributes and redacted-versus-working export.
+- Vault/profiles/recovery: PBKDF2/AES-GCM/tampering, wrong-passphrase/Enter-submit feedback, encrypted metadata at rest, explicit source counts, update comparisons, one preview/apply flow, service-enforced protected-change approval, busy controls, complete-versus-partial restore and disabled-cookie recovery.
+- History/rules/settings: recording scope enforced before persistence and separate from view filters, normalized URL context, HMAC diffs, bounded/redacted events, live/pause/stop semantics, valid before/after prerequisites, structured rule editing/matching/enabling/removal/Undo, readable jobs and own-data reset preserving browser cookies.
+- Cookie workspace: compact table, read-only inspector, conditional bulk controls, mixed page selection, hidden selection count, export selection independent of filters, resettable filters, observation guidance, specific empty states, scope drafts, pin/follow and safe reload binding.
+- Native panel: actual `sidePanel` surface opened and its target inspected without setting a viewport. Compact rows, no horizontal document overflow, following active websites and scope/filter/selection handoff to Manager are verified.
+- Accessibility/lifecycle: serious/critical axe checks in all five manager workspaces and compact sidepanel view; keyboard focus containment, Escape and opener restoration; local fonts/resources; 2,500 actual cookies; responsive status during 4,000 writes; accepted operations after their view closes; metadata-only interrupted-job recovery without replay.
+- Actual private context/persistence: Chrome's normal extension settings enables incognito; genuine off-the-record writes/deletion, cross-store refusal, no persistent private vault and unchanged normal cookie. A complete browser close/restart verifies regular-profile encryption, locked state, unlock and Apply.
+
+Browser files cover 6 core, 4 transfer, 3 profile/debug lifecycle, 3 history/recovery, 1 incognito, 3 reliability, 1 native-panel, 3 cookie UX, 3 debug/rules UX, 5 profile UX and 5 transfer/editor UX cases: **37 total**.
 
 ## Measured performance and recovery
 
-Final-run measurements (single run, not hardware-independent guarantees):
+Final-run measurements are single-run observations, not hardware-independent guarantees:
 
 | Measurement | Result |
 | --- | ---: |
-| Pure PSL scope/wildcard search/sort, 10,000 records | 37.6 ms |
-| Real browser fixture | 2,500 cookies, 25 distinct registrable domains |
-| Actual fixture cookie writes | 119.1 ms |
-| Manager load/render | 136.1 ms |
-| Debounced search through actual UI | 195.3 ms |
-| Rendered rows | 50 cookie rows + 1 domain-group row |
-| Maximum sampled animation-frame gap | 16.7 ms |
-| Event burst | 4,000 writes, 25 domains |
-| Concurrent status during burst | 264 ms |
-| Burst queue loss disclosure | 4,647 events dropped; browser emits removal/eviction events as well as writes |
-| Retained events at burst check | 42, bounded by configured 200 |
-| Actual interrupted import | 7 of 100 cookies written before stopping worker |
-| Recovered journal state | `interrupted`; no success reply |
-| Writes replayed after manager reload | 0 |
+| Actual fixture | 2,500 cookies across 25 registrable domains |
+| Fixture writes | 112.3 ms |
+| Manager load/render | 116.4 ms |
+| Debounced search through actual UI | 235.6 ms |
+| Rendered cookie rows per page | 50 |
+| Maximum sampled animation-frame gap | 16.8 ms |
+| Actual event burst | 4,000 writes, 25 domains |
+| Concurrent status during burst | 265 ms |
+| Burst dropped-event disclosure | 4,647 events |
+| Retained observations at burst check | 75; configured limit 200 |
+| Interrupted import | 5 of 100 cookies written before stopping worker |
+| Recovered journal | `interrupted`; no success reply |
+| Automatic replay after Manager reload | 0 writes |
+| Native panel viewport | 360 × 865 px |
+| Native panel document width | 360 px; no horizontal document overflow |
 
-The event queue is capped at 256 and independent of UI RPCs. Drops are disclosed for the current worker session; history is not advertised as a complete browser audit log. Chrome cookie quotas evict records in burst tests; that is different from UI data loss. Snapshots and keys disappear on worker restart as designed.
+Detailed evidence: [performance](evidence/ux-cookie-performance.json), [event burst](evidence/ux-event-storm.json), [actual interruption](evidence/ux-import-interruption.json). The queue is capped at 256 and independent of UI RPCs. Chrome emits removals/evictions as well as writes, so drops can exceed submitted writes. Drops are disclosed for the current worker session; history is not a complete browser audit log. Cookie quotas and hidden partitions remain browser constraints.
 
-## Evidence
+## Visual evidence
 
-Playwright writes its HTML report to `playwright-report/index.html`, machine result to `test-results/e2e-results.json`, and per-test screenshots/measurements to `test-results/`. Those generated directories are ignored by Git. Selected genuine screenshots and JSON measurements are preserved in [evidence](evidence/): [manager](evidence/manager.png), [popup](evidence/popup.png), [burst](evidence/event-storm-measurements.json), [interruption](evidence/actual-import-interruption.json). Both screenshots were opened and visually inspected; they show actual local first-run/restricted-access UI, not fabricated product data. The narrow popup intentionally scrolls within Chrome's popup height.
+The final [Manager with fixture cookies/inspector](evidence/ux-manager.png) and [native Chrome side panel](evidence/ux-sidepanel.png) were opened and visually inspected. Values remain masked. The panel uses compact rows/details; Manager uses a table/inspector. Panel width is controlled by Chrome/the user. These are genuine local fixture screenshots.
 
-## Intermediate failures corrected
+Playwright also generates ignored `playwright-report/index.html`, `test-results/e2e-results.json` and attachments. Earlier `manager.png`, `popup.png`, `popup-native.png` and original measurement JSON in `docs/evidence/` are historical evidence of the initial implementation and popup correction, not the current UI.
 
-1. Real Chromium `cookies.remove` on a same-name/nested-path cookie also removed a protected sibling. Adapter now uses exact-identity expiration whenever siblings exist or global host permission is absent, then verifies target absence and siblings unchanged. `cookies.remove` is reserved for fully covered, unambiguous cases. Regression passes in real Chromium.
-2. A 2,500-cookie fixture using subdomains of a single registrable site hit Chrome's per-site quota and left 175 records. The test now uses 25 distinct registrable local fixture domains and confirms all 2,500 are actually present.
-3. Incognito toggle reloaded a forced-loaded unpacked extension with Developer mode OFF; the test enables Developer mode through normal browser UI before enabling incognito. Actual private-store test now passes.
-4. Early ESLint regex/fixture warnings were fixed. No final lint failure remains.
+## Failures corrected before the final run
 
-## Permission testing boundary and manual acceptance
+1. Same-name/nested-path removal could delete protected siblings in Chrome. Exact-identity expiration plus sibling verification covers ambiguous/global-permission cases; actual-browser regression passes.
+2. Performance fixtures hit per-site quotas until spread over 25 registrable domains. All 2,500 cookies are verified present before measuring.
+3. Genuine incognito setup needed Developer mode enabled through normal browser controls before reload; store-isolation tests pass.
+4. Whitespace in tab IDs broke tab/panel relationships. Stable valid IDs now pass axe in every tested workspace.
+5. Native Tab navigation could escape dialogs. Shared modals contain focus in the topmost dialog, support Escape and restore the opener; keyboard regression passes.
+6. Absent DOM children displayed literal `null`. Shared replacement omits absent children; real-cookie UI checks assert no such text.
+7. Date filters formatted local inputs as UTC, and asynchronous profile configuration could re-enable accepted actions. Local-time roundtrip units and a busy-operation browser regression pass.
 
-A newly requested extension host-permission prompt is native browser chrome, outside headless Playwright page automation. A real probe confirmed it stays pending. The unchanged production manifest is tested without hosts; cookie-operation contexts add only local fixture hosts in a temporary manifest copy. Their `chrome.cookies`, permission status, request-for-already-granted-host, revoke/error paths and all worker code remain actual browser APIs. This **does not verify accepting/denying a new native prompt**.
+## Permission and browser boundaries
 
-Manual, currently unexecuted acceptance steps in ordinary Chrome:
+New host-permission prompts are native browser chrome outside the headless page harness. A probe confirmed they stay pending. No-access cases use the unchanged production manifest; operation cases grant **only controlled fixture hosts** in a temporary manifest copy. Cookie APIs, grants/status, already-granted requests and error paths remain actual browser behavior. **Acceptance/denial of a newly requested native prompt has not been automated or manually completed here.**
 
-1. Load the unchanged `dist/` unpacked extension, visit a local or controlled HTTP(S) site and open toolbar popup.
-2. Choose Grant access to this site, **Cancel** the native prompt; verify a specific denial explanation and usable Retry/Manager.
-3. Repeat and **Allow**; refresh and compare the site's cookies with DevTools, taking store/path/partition into account.
-4. Grant site including subdomains / selected hosts, then revoke them in Settings and verify reduced coverage.
-5. Choose Grant access to all sites, test both Cancel and Allow, then inspect explicit all-access scope and revoke it.
+Remaining manual acceptance in ordinary Chrome:
 
-No native prompt acceptance/denial, installed Google Chrome 132/current stable build, Edge, Brave, real enterprise policy or personal OAuth/ADFS account was claimed tested. Chrome Android/Firefox are unsupported. Accessibility testing found no serious/critical axe violations in tested views; this is not full WCAG certification. Crypto uses standard Web Crypto but has no independent security audit.
+1. Load/reload unchanged `dist/`, open a controlled HTTP(S) site and click Cookiebase to open the side panel.
+2. Choose Grant access to this site and Cancel. Verify denial explanation and usable Manager/Retry.
+3. Repeat and Allow, refresh, compare cookies with DevTools accounting for path/store/partition.
+4. Grant chosen hosts/site including subdomains, revoke in Settings and verify reduced coverage. Exercise all-sites Cancel/Allow only when the wider grant is intended.
 
-## Release checks
+Installed Google Chrome 132/current stable, Edge, Brave, enterprise-policy combinations and personal OAuth/ADFS accounts are not claimed tested. Firefox/Safari/Chrome Android are unsupported. Axe results are not full WCAG certification; Web Crypto has no independent security audit. Server-invalidated sessions, quotas and inaccessible stores/partitions cannot be restored or bypassed.
 
-The release artifact is a locally generated ZIP plus unpacked `dist/`; it is not published. `npm run package` rebuilds and writes the archive and SHA-256. Executed `npm run package`, `unzip -t artifacts/cookiebase-0.1.0.zip`, `npm run lint`, `npm run check:plan` and `git diff --check`: all passed. The archive checksum is stored alongside the ZIP; the final commit sequence is in the implementation record. Dependency notices are included. Cookiebase itself has no declared project licence in the initial repository; choosing one remains an owner decision.
+## Local delivery
 
-## Popup sizing correction — 29 October 2026
-
-The user reported the actual toolbar popup collapsing into a narrow column. A new test opens the genuine native action surface using Chrome's documented [action.openPopup](https://developer.chrome.com/docs/extensions/reference/api/action#method-openPopup), then attaches to its target with CDP without setting a viewport. This reproduced a **178 px** viewport/body/document width in the previous build. Earlier popup tests used a prescribed browser-tab viewport and therefore missed this intrinsic sizing failure.
-
-Removed the popup's `min(560px,100vw)` dependency and gave its HTML root and body an explicit 560 px width. The manager's responsive layout remains separate. The native popup now measures **560 px** for viewport, body and document, with its Manager button beside the brand. The test also checks Chrome's height bound and writes an actual native-popup screenshot. The tab-based popup fixture now matches the intended 560 x 600 surface.
-
-Executed `npm run build`, `npx playwright test tests/e2e/popup-sizing.spec.js tests/e2e/reliability.spec.js -g 'native toolbar popup|all manager workspaces' --reporter=line --output=artifacts/popup-sizing-after`, `npm run lint` and `git diff --check`: **2/2 targeted browser checks pass**, including all-workspace/popup axe checks. The native screenshot was opened and visually inspected; preserved as [native popup](evidence/popup-native.png). The previously reported 47/20 full-suite results are the initial implementation run; this follow-up used the relevant focused checks.
+Executed `npm run package`: rebuilt `dist/` and created `artifacts/cookiebase-0.1.0.zip` plus SHA-256. `unzip -tq cookiebase-0.1.0.zip` and `shasum -a 256 -c cookiebase-0.1.0.zip.sha256` passed from `artifacts/`. Final `npm run lint`, `npm run check:plan`, 287 relative document links and `git diff --check` passed. The archive is approximately 760 KiB. No upload, push, Web Store installation or publication is performed. Existing installations require Reload in `chrome://extensions` for the new manifest. Dependency notices are bundled. The repository has no declared project license; choosing one remains an owner decision.

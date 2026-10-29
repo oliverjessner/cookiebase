@@ -1,0 +1,8 @@
+{
+  "writes": 4000,
+  "domains": 25,
+  "statusMilliseconds": 265,
+  "totalMilliseconds": 330,
+  "droppedEvents": 4647,
+  "retainedEventsAtCheck": 75
+}

@@ -1,0 +1,7 @@
+{
+  "requested": 100,
+  "writtenBeforeInterruption": 5,
+  "recoveredStatus": "interrupted",
+  "responseSuccess": false,
+  "replayedAfterManagerReload": 0
+}

@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-29",
+  "node": "26.12.0",
+  "npm": "11.20.0",
+  "playwright": "1.64.1",
+  "chromium": "156.0.8078.4",
+  "chromiumRevision": 1248,
+  "unit": {
+    "passed": 63,
+    "failed": 0,
+    "skipped": 0
+  },
+  "e2e": {
+    "startTime": "2026-10-29T20:56:43.770Z",
+    "duration": 60942.647,
+    "expected": 37,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "nativeSidepanel": {
+    "width": 360,
+    "height": 865,
+    "documentWidth": 360,
+    "viewportPrescribed": false
+  },
+  "nativeOptionalHostPromptAcceptDeny": "manual verification not executed",
+  "cookieOperationHostSetup": "temporary test-only manifest grants controlled fixture hosts",
+  "productionCookieAPIs": "actual chrome.cookies; no mocks",
+  "archive": "artifacts/cookiebase-0.1.0.zip",
+  "implementationCommits": [
+    "3f706f0",
+    "d5f4c3e"
+  ],
+  "deliveryChecks": {
+    "package": "passed",
+    "zipIntegrity": "passed",
+    "sha256": "passed",
+    "lintAndAssetAudit": "passed",
+    "plan": "passed",
+    "relativeDocumentLinks": {
+      "checked": 287,
+      "missing": 0
+    },
+    "diffWhitespace": "passed"
+  },
+  "archiveSha256": "66b9cff5522ae93a3ff284e9e8ce6838ce4e86c3200aaa73d1106e01e066f4c8"
+}

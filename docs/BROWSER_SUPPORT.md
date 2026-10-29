@@ -15,11 +15,11 @@
 
 ## Permissions and surfaces
 
-The extension needs `cookies`, `storage` and `activeTab`. Host permissions are optional HTTP(S) origins: current site, chosen domains, a site including subdomains, or all sites after an explicit user action. The source manifest has no required global host grant. All Accessible Sites covers granted hosts in the current browser context, not inaccessible cookies elsewhere.
+The extension needs `cookies`, `storage`, `activeTab` and `sidePanel`. Host permissions are optional HTTP(S) origins: current site, chosen domains, a site including subdomains, or all sites after an explicit user action. The source manifest has no required global host grant. All Accessible Sites covers granted hosts in the current browser context, not inaccessible cookies elsewhere.
 
-The popup operates on the active site. Restricted schemes such as `chrome://`, a closed tab, or an unavailable URL are explained, and the manager lets you enter a separate HTTP(S) target. Manager import/Apply does not require that website to be open, so an OAuth/ADFS-style redirect does not force the destination to follow the current tab. A later server/script change can still replace a successfully imported cookie.
+The native side panel follows the active permitted website tab or keeps an explicitly pinned site. Restricted schemes such as `chrome://`, a closed tab, or an unavailable URL are explained, and the manager lets you enter a separate HTTP(S) target. Manager import/Apply does not require that website to be open, so an OAuth/ADFS-style redirect does not force the destination to follow the current tab. A later server/script change can still replace a successfully imported cookie.
 
-The compact popup and standalone manager are supported surfaces. Debug events and snapshots work in the manager without DevTools. There is no Side Panel or DevTools/network-header extension in this version; no unsupported API is simulated to invent a rejection reason.
+The native side panel and standalone manager are supported surfaces. The toolbar opens the panel; Manager handoff preserves the explicit scope, filters and selection. Debug events and snapshots work in the manager without DevTools. There is no DevTools/network-header integration in this version; no unsupported API is simulated to invent a rejection reason.
 
 ## Cookie capabilities and limits
 
@@ -46,3 +46,5 @@ Headless Playwright cannot operate Chrome's native optional-host acceptance/deni
 For that final manual path, load the unchanged `dist/` extension into Chrome, open a site you control, and choose **Grant access to this site**. Verify the native prompt names the intended origin, then accept and Retry. Repeat with a fresh optional origin and decline: Cookiebase should explain the denial and remain usable for previously granted sites. Revoke the origin in Settings or Chrome's extension controls and verify coverage decreases. Test all-sites access separately only when you intend to grant that wider access.
 
 Chrome's official references describe the [cookies API](https://developer.chrome.com/docs/extensions/reference/api/cookies), [optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions) and [MV3 worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle). The test harness follows Playwright's [persistent-context extension guidance](https://playwright.dev/docs/chrome-extensions).
+
+Native side-panel behavior is tested by opening the actual browser surface through the documented sidePanel API and reading its native target, without prescribing a page viewport. Width belongs to Chrome/the user; Cookiebase adapts to a compact list with a detail view. Opening an old `popup.html` bookmark remains a compact compatibility view, but no action popup is registered.
