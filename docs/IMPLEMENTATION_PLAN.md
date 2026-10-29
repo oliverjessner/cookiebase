@@ -21,7 +21,7 @@ Vanilla ESM UI shared between a compact popup and a full manager tab. `oj-design
 | --- | --- | --- |
 | 1 Audit & Plan | Full prompt read, baseline, architecture and requirement matrix; `npm run check:plan` | Verified: plan check passed |
 | 2 Core & UI | MV3, OJ assets, PSL scopes, stores, permissions, paginated inspection; unit tests/build | Verified: 40 unit tests, lint/build, real core Chromium 4/4; service foundations integrated early |
-| 3 Control & Editing | Verified CRUD, rules, delete preview, encrypted Undo/Disable; unit/integration tests | Pending |
+| 3 Control & Editing | Verified CRUD, rules, delete preview, encrypted Undo/Disable; unit/integration tests | Verified: 17 core tests + 6 real Chromium cases; exact deletion, advanced editor, protection, disable/restore |
 | 4 Import & Export | JSON/Netscape parser, previews and reports, copy/download, fixtures roundtrip | Pending |
 | 5 Session Profiles | Vault encryption, CRUD, apply/verify/rollback, persistence and failure tests | Pending |
 | 6 Debugger | Redacted event timeline, correlation, snapshots/diffs, retention, observed diagnoses | Pending |

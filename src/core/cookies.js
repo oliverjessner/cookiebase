@@ -78,7 +78,7 @@ export function scopeLabel(scope = {}) {
 export function validateCookie(cookie, { now = Date.now() / 1000, requireStore = true } = {}) {
   const errors = [];
   if (!cookie || typeof cookie !== 'object') return ['Cookie must be an object.'];
-  if (typeof cookie.name !== 'string' || !cookie.name || !/^[!#$%&'*+\-.^_`|~0-9a-zA-Z]+$/.test(cookie.name)) errors.push('Name is required and must be a valid HTTP token.');
+  if (typeof cookie.name !== 'string' || (cookie.name !== '' && !/^[!#$%&'*+\-.^_`|~0-9a-zA-Z]+$/.test(cookie.name))) errors.push('Name must be text: an empty browser cookie name or a valid HTTP token.');
   // eslint-disable-next-line no-control-regex -- HTTP cookie fields cannot contain control characters.
   if (typeof cookie.value !== 'string' || /[\x00-\x1f\x7f;]/.test(cookie.value)) errors.push('Value must be text without control characters or semicolons.');
   const domain = stripDot(cookie.domain);

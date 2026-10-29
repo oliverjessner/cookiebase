@@ -106,3 +106,66 @@ test.describe('permission denial without optional grants', () => {
 });
 
 });
+
+test('HTTP fixtures across localhost, a domain and its subdomain stay in explicit scopes', async ({ manager, context, baseURL, urls }) => {
+  const site = await context.newPage();
+  for (const url of [baseURL, urls.app, urls.sub]) await site.goto(`${url}/seed`);
+  const storeId = await cookieStore(manager);
+  const scope = { type: 'host', url: urls.app, storeId, incognito: false };
+  const exact = await rpc(manager, 'list', { scope });
+  expect(exact.cookies.filter(c => c.name === 'twin').map(c => c.path).sort()).toEqual(['/', '/account']);
+  expect(exact.cookies.every(c => c.domain === 'app.cookiebase.test')).toBe(true);
+  const withSubdomains = await rpc(manager, 'list', { scope: { type: 'domains', domains: ['app.cookiebase.test'], storeId, incognito: false } });
+  expect(new Set(withSubdomains.cookies.map(c => c.domain))).toEqual(new Set(['app.cookiebase.test', 'sub.app.cookiebase.test']));
+  const all = await rpc(manager, 'list', { scope: { type: 'all', storeId, incognito: false } });
+  expect(new Set(all.cookies.map(c => c.domain))).toEqual(new Set(['localhost', 'app.cookiebase.test', 'sub.app.cookiebase.test']));
+  const urlScope = await rpc(manager, 'list', { scope: { type: 'url', url: `${urls.app}/account/profile`, storeId, incognito: false } });
+  expect(urlScope.cookies.filter(c => c.name === 'twin')).toHaveLength(2);
+  await rpc(manager, 'vault.initialize', { passphrase: 'a long controlled e2e passphrase' });
+  const selected = exact.cookies.find(c => c.name === 'twin' && c.path === '/account');
+  const result = await rpc(manager, 'delete', { scope, ids: [cookieId(selected)] });
+  expect(result.removed).toBe(1);
+  expect(result.failed).toBe(0);
+  const after = await rpc(manager, 'list', { scope: { type: 'all', storeId, incognito: false } });
+  expect(after.cookies.filter(c => c.name === 'twin')).toHaveLength(5);
+  expect(after.cookies.find(c => c.domain === 'app.cookiebase.test' && c.name === 'twin').path).toBe('/');
+  await site.close();
+});
+
+test('Create editor exposes every advanced attribute, masks secrets and saves through real Chrome APIs', async ({ manager, urls }) => {
+  await grantViaButton(manager, urls.secure);
+  await manager.getByRole('link', { name: 'Cookies', exact: true }).click();
+  await manager.locator('#create-cookie').click();
+  const dialog = manager.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Create cookie · all attributes' })).toBeVisible();
+  for (const id of ['edit-name', 'edit-value', 'edit-domain', 'edit-path', 'edit-storeId', 'edit-sameSite', 'edit-expiration', 'edit-partition']) await expect(dialog.locator(`#${id}`)).toBeVisible();
+  await dialog.locator('#edit-name').fill('editor-advanced');
+  await dialog.locator('#edit-value').fill('secret visible only after reveal');
+  await expect(dialog.locator('#edit-value')).toHaveAttribute('type', 'password');
+  await dialog.getByLabel('Reveal secret value', { exact: true }).check();
+  await expect(dialog.locator('#edit-value')).toHaveAttribute('type', 'text');
+  await dialog.getByLabel('Reveal secret value', { exact: true }).uncheck();
+  await dialog.locator('#edit-path').fill('/tools');
+  await dialog.locator('#edit-sameSite').selectOption('strict');
+  await dialog.getByLabel('httpOnly', { exact: true }).check();
+  await dialog.getByLabel('hostOnly', { exact: true }).uncheck();
+  await dialog.getByLabel('session', { exact: true }).uncheck();
+  const future = new Date(Date.now() + 86400000).toISOString().slice(0, 19);
+  await dialog.locator('#edit-expiration').fill(future);
+  await dialog.locator('#edit-partition').fill('https://cookiebase.test');
+  await dialog.getByLabel('Partition has cross-site ancestor', { exact: true }).check();
+  await dialog.getByRole('button', { name: 'Save & verify', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(manager.locator('#status')).toContainText('saved and verified');
+  const storeId = await cookieStore(manager);
+  const listed = await rpc(manager, 'list', { scope: { type: 'host', url: urls.secure, storeId, incognito: false } });
+  const actual = listed.cookies.find(c => c.name === 'editor-advanced');
+  expect(actual).toMatchObject({ path: '/tools', domain: '.app.cookiebase.test', secure: true, httpOnly: true, hostOnly: false, session: false, sameSite: 'strict', partitionKey: { topLevelSite: 'https://cookiebase.test', hasCrossSiteAncestor: true } });
+  expect(actual.expirationDate).toBeGreaterThan(Date.now() / 1000);
+  await manager.locator('#search').fill('editor-ad*');
+  await expect(manager.locator('#cookie-count')).toContainText('1 filtered');
+  await manager.getByRole('button', { name: 'editor-advanced', exact: true }).click();
+  await expect(manager.getByRole('dialog').locator('#edit-value')).toHaveAttribute('type', 'password');
+  await manager.keyboard.press('Escape');
+  await expect(manager.getByRole('dialog')).toHaveCount(0);
+});

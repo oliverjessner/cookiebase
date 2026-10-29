@@ -1,7 +1,7 @@
 import { createStorage } from './storage.js';
 import { createRepository } from './core/repository.js';
 import { cookieId } from './core/cookies.js';
-import { deletePreview } from './core/rules.js';
+import { deletePreview, validateRule } from './core/rules.js';
 import { parseImport, previewImport, executeImport } from './services/transfer.js';
 import { createVault } from './services/vault.js';
 import { createProfileService } from './services/profiles.js';
@@ -80,8 +80,9 @@ async function handle({ type, payload: p = {} }) {
     }
     case 'rules.save': {
       const m = await metadata();
-      const r = p.rule;
-      if (!r.domain || !r.name || !r.path || /[\s/]/.test(r.domain.replace(/^\./, '')) || !r.path.startsWith('/')) throw new Error('A rule needs a valid domain pattern, name and absolute path.');
+      const r = { ...p.rule, name: p.rule?.name ?? '*', path: p.rule?.path ?? '*' };
+      const errors = validateRule(r);
+      if (errors.length) throw new Error(errors.join(' '));
       const rule = { ...r, id: r.id || crypto.randomUUID(), incognito };
       m.rules = [...m.rules.filter(x => x.id !== rule.id), rule]; await saveMetadata(m); return m.rules;
     }

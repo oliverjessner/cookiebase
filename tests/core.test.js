@@ -95,3 +95,9 @@ test('10,000 cookies can be searched, scoped and sorted without quadratic work',
   assert.ok(elapsed < 1500, `10k filter elapsed ${elapsed.toFixed(1)}ms`);
   t.diagnostic(`10k cookie PSL scope + wildcard search + sort: ${elapsed.toFixed(1)}ms`);
 });
+
+ test('browser cookies with an empty name remain editable and rule paths accept wildcards', () => {
+  const c = {name:'',value:'value',domain:'example.com',path:'/',storeId:'0',secure:true,httpOnly:false,hostOnly:true,sameSite:'lax',session:true};
+  assert.deepEqual(validateCookie(c), []);
+  assert.equal(protectedBy(c,[{domain:'example.com',name:'*',path:'*'}]).length,1);
+});
