@@ -17,7 +17,7 @@ export function matchesRule(cookie, rule) {
   const domain = stripDot(cookie.domain);
   const pattern = stripDot(rule.domain || '*');
   const domainMatch = wildcardMatch(domain, pattern) || (rule.includeSubdomains === true && domain.endsWith(`.${pattern}`));
-  return domainMatch && wildcardMatch(cookie.name, rule.name || '*') && wildcardMatch(cookie.path, rule.path || '*');
+  return domainMatch && wildcardMatch(cookie.name, rule.name ?? '*') && wildcardMatch(cookie.path, rule.path || '*');
 }
 export function protectedBy(cookie, rules = []) {
   // Rules are allowlists only: any matching enabled rule protects. No ambiguous deny precedence.

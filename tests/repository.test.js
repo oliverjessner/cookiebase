@@ -53,6 +53,19 @@ test('deletion expires exact identity when Chrome remove could affect same-name 
   assert.equal((await repository.remove(target)).removed, true);
   assert.deepEqual(jar.map(c => c.path), ['/']);
 });
+test('partial host access uses exact expiration even when a parent-domain sibling is hidden', async () => {
+  const { api, jar, repository } = fixture();
+  api.permissions.contains = async details => !details.origins.includes('http://*/*');
+  api.cookies.remove = async () => { throw new Error('Name/URL removal could affect a hidden parent-domain cookie'); };
+  let expiration;
+  const originalSet = api.cookies.set;
+  api.cookies.set = async details => { expiration = details; return originalSet(details); };
+  assert.equal((await repository.remove(base)).removed, true);
+  assert.equal(expiration.expirationDate, 0);
+  assert.equal(expiration.path, '/');
+  assert.equal(expiration.domain, undefined);
+  assert.equal(jar.length, 0);
+});
 test('permission loss gives actionable reason and browser value text is redacted', async () => {
   const { api, repository } = fixture();
   api.permissions.contains = async () => false;

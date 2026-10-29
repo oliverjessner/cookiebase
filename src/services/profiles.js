@@ -51,7 +51,7 @@ function planning(profile, current, scope, mode) {
   assertScope(scope); modeCheck(mode);
   if (profile.scope.storeId !== scope.storeId) throw new Error('Profile belongs to a different store. Cross-store application is refused.');
   const target = profile.cookies.filter(cookie => inScope(cookie, scope));
-  const existing = current.filter(cookie => inScope(cookie, scope));
+  const existing = current.filter(cookie => inScope(cookie, scope) && inScope(cookie, profile.scope));
   const currentMap = new Map(existing.map(cookie => [cookieId(cookie), cookie]));
   const targetIds = new Set(target.map(cookieId));
   const removals = mode === 'replace' ? existing.filter(cookie => !targetIds.has(cookieId(cookie))) : [];
@@ -73,9 +73,12 @@ export function createProfileService({ vault, repository }) {
     await vault.update(data => { data.snapshots.push(snapshot); data.snapshots = data.snapshots.slice(-MAX_SNAPSHOTS); });
     return { id: snapshot.id, name: snapshot.name, scope: snapshot.scope, cookieCount: cookies.length, createdAt: snapshot.createdAt, kind };
   }
-  async function execute(target, scope, { mode = 'merge', backup = true, rollbackOnFailure = true } = {}) {
+  async function execute(target, scope, { mode = 'merge', backup = true, rollbackOnFailure = true, expectedRemovalIds } = {}) {
     const before = await current(scope);
     const plan = planning(target, before, scope, mode);
+    if (expectedRemovalIds && JSON.stringify([...expectedRemovalIds].sort()) !== JSON.stringify(plan.removals.map(cookieId).sort())) throw new Error('Cookie state changed since preview. Preview this profile again before applying.');
+    const invalid = plan.target.map(cookie => ({ cookie, errors: validateCookie(cookie) })).filter(item => item.errors.length);
+    if (invalid.length) return { processed: invalid.length, applied: 0, removed: 0, failed: invalid.length, results: invalid.map(({ cookie, errors }) => ({ ...metadata(cookie), action: 'set', status: 'failed', error: errors.join(' ') })), backupId: null, rollback: null, warning: 'Apply aborted before any changes because stored cookies are invalid or expired. Edit the profile or choose a valid state.' };
     let backupSnapshot = null;
     if (backup) backupSnapshot = await saveSnapshot({ name: `Before ${target.name}`.slice(0, 120), scope, cookies: before, kind: 'apply-backup' });
     const report = { processed: 0, applied: 0, removed: 0, failed: 0, results: [], backupId: backupSnapshot?.id ?? null,
@@ -154,7 +157,7 @@ export function createProfileService({ vault, repository }) {
     async preview(id, { scope, mode = 'merge' }) {
       const item = await profile(id);
       const plan = planning(item, await current(scope), scope, mode);
-      return { profileId: id, name: item.name, scope, mode, additions: plan.additions.length, overwrites: plan.overwrites.length,
+      return { profileId: id, name: item.name, scope, profileScope: item.scope, mode, invalidCookies: plan.target.flatMap(cookie => { const errors = validateCookie(cookie); return errors.length ? [{ ...metadata(cookie), error: errors.join(' ') }] : []; }), additions: plan.additions.length, overwrites: plan.overwrites.length,
         removals: plan.removals.length, excluded: item.cookies.length - plan.target.length,
         sessionCookies: plan.target.filter(c => c.session).length,
         cookies: plan.target.map(metadata), removeCookies: plan.removals.map(metadata),

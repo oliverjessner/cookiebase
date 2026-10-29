@@ -28,3 +28,7 @@ body[data-page="popup"] .cb-shell { padding: var(--oj-space-3); }
 body[data-page="popup"] .cb-table { max-height: 320px; }
 body[data-page="popup"] .cb-full { display: none; }
 @media (max-width: 600px) { .cb-shell { padding: var(--oj-space-3); } .cb-header { align-items: start; } .cb-tools { align-items: stretch; } body[data-page="popup"] { width: min(560px,100vw); } }
+body[data-page="popup"] { max-height: 600px; overflow-y: auto; }
+body[data-page="popup"] .cb-shell { gap: var(--oj-space-2); }
+body[data-page="popup"] .cb-table { max-height: 210px; }
+body[data-page="popup"] .cb-view { gap: var(--oj-space-2); }

@@ -24,7 +24,7 @@ Vanilla ESM UI shared between a compact popup and a full manager tab. `oj-design
 | 3 Control & Editing | Verified CRUD, rules, delete preview, encrypted Undo/Disable; unit/integration tests | Verified: 17 core tests + 6 real Chromium cases; exact deletion, advanced editor, protection, disable/restore |
 | 4 Import & Export | JSON/Netscape parser, previews and reports, copy/download, fixtures roundtrip | Verified: 14 parser/protection tests + 3 real Chromium transfer cases; clipboard/file/redirect roundtrip |
 | 5 Session Profiles | Vault encryption, CRUD, apply/verify/rollback, persistence and failure tests | Verified: encrypted CRUD/apply/rollback unit tests and 3 real Chromium profile/debug cases incl full browser restart |
-| 6 Debugger | Redacted event timeline, correlation, snapshots/diffs, retention, observed diagnoses | Pending |
+| 6 Debugger | Redacted event timeline, correlation, snapshots/diffs, retention, observed diagnoses | Verified: observed events, overwrite correlation, retention and snapshot diffs in unit/real Chromium tests; bounded worker queue |
 | 7 Reliability & Security | Worker interruption, isolation, CSP/assets, accessibility and performance checks | Pending |
 | 8 Verification & Release Readiness | Full lint/unit/build/real Chromium E2E, docs, evidence, release artifact | Pending |
 

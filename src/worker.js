@@ -115,6 +115,7 @@ async function handle({ type, payload: p = {} }) {
     case 'import.execute': {
       const parsed = parseImport(p.text, p.options);
       const plan = protectImportPlan(previewImport(parsed, (await list(p.scope)).cookies, { ...p.options, scope: scoped(p.scope) }), (await metadata()).rules, p.options);
+      if (p.expectedRemovalIds && JSON.stringify([...p.expectedRemovalIds].sort()) !== JSON.stringify(plan.removals.map(cookieId).sort())) throw new Error('Cookie state changed since preview. Preview the import again before replacing cookies.');
       return executeImport(plan, { repository, snapshot: p.backup || plan.mode === 'replace' ? cookies => requireSnapshot('Before import', p.scope, cookies, 'import') : undefined });
     }
     case 'history.configure': { const policy = await history.configure(p); historyEnabled = policy.enabled; if (!historyEnabled) eventQueue = []; return policy; }
@@ -125,9 +126,9 @@ async function handle({ type, payload: p = {} }) {
     case 'history.clear': await history.clear({ incognito }); await history.clearSnapshots(); return true;
     case 'data.clear': {
       if (p.area === 'rules') { const m = await metadata(); m.rules = []; await saveMetadata(m); }
-      else if (p.area === 'history') { await history.configure({ enabled: false }); await history.clear({ incognito }); await history.clearSnapshots(); }
+      else if (p.area === 'history') { historyEnabled = false; eventQueue = []; await history.configure({ enabled: false }); await history.clear({ incognito }); await history.clearSnapshots(); }
       else if (p.area === 'vault') await vault.reset();
-      else if (p.area === 'all') { await vault.lock(); await history.clear({ incognito }); await history.clearSnapshots(); eventQueue = []; historyEnabled = false; recordingError = null; droppedEvents = 0; await storage.clear(); await chrome.storage.local.remove(metadataKey); initialized = undefined; }
+      else if (p.area === 'all') { historyEnabled = false; eventQueue = []; await history.configure({ enabled: false }); await vault.lock(); await history.clear({ incognito }); await history.clearSnapshots(); eventQueue = []; historyEnabled = false; recordingError = null; droppedEvents = 0; await storage.clear(); await chrome.storage.local.remove(metadataKey); initialized = undefined; }
       else throw new Error('Choose rules, history, vault, or all Cookiebase data.');
       return true;
     }

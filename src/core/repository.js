@@ -96,9 +96,11 @@ export function createRepository(api = globalThis.chrome) {
       const siblingQuery = { name: cookie.name, storeId: cookie.storeId };
       if (cookie.partitionKey) siblingQuery.partitionKey = cookie.partitionKey;
       const siblings = (await api.cookies.getAll(siblingQuery)).filter(candidate => cookieId(normalizeCookie(candidate)) !== cookieId(cookie));
-      if (siblings.length) {
+      const fullHostAccess = await api.permissions.contains({ origins: ['http://*/*', 'https://*/*'] });
+      if (siblings.length || !fullHostAccess) {
         // Chrome remove(name, URL) may remove multiple cookies with the same name
-        // and URL-matching paths. Expire the exact domain/path identity instead.
+        // and URL-matching paths. Partial grants can hide parent-domain siblings,
+        // so use exact domain/path expiration unless coverage is comprehensive.
         const expiration = { ...details, value: '', path: cookie.path, secure: cookie.secure,
           httpOnly: cookie.httpOnly, sameSite: cookie.sameSite, expirationDate: 0 };
         if (!cookie.hostOnly) expiration.domain = cookie.domain;
