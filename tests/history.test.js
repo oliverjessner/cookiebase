@@ -80,3 +80,41 @@ test('observation timestamps come from the callback and age retention removes st
   assert.equal(events[0].observedAt, observedAt);
   assert.equal(events[0].cause, 'evicted');
 });
+test('recording scope is enforced before history persistence and survives worker recreation', async () => {
+  const store = storage();
+  const service = createHistoryService(store);
+  const recordingScope = { type: 'host', url: 'https://example.com/', storeId: '0', incognito: false };
+  await service.configure({ enabled: true, recordingScope });
+  assert.deepEqual((await service.status()).recordingScope, recordingScope);
+  assert.equal((await service.record({ cookie, removed: false })).recorded, true);
+  assert.equal((await service.record({ cookie: { ...cookie, domain: 'other.test', value: 'UNRELATED_SECRET' }, removed: false })).recorded, false);
+  assert.equal((await service.record({ cookie: { ...cookie, storeId: '1' }, removed: false })).recorded, false);
+  assert.equal((await service.record({ cookie, removed: false }, { incognito: true })).recorded, false);
+  assert.equal((await service.list()).length, 1);
+  assert.equal(JSON.stringify([...store.map]).includes('other.test'), false);
+  assert.equal(JSON.stringify([...store.map]).includes('UNRELATED_SECRET'), false);
+  const restarted = createHistoryService(store);
+  assert.deepEqual((await restarted.status()).recordingScope, recordingScope);
+  assert.equal((await restarted.record({ cookie: { ...cookie, domain: 'another.test' }, removed: false })).recorded, false);
+});
+test('recording scope is explicit, validated, and old configurations disclose all granted sites', async () => {
+  const store = storage();
+  await store.set('history-config', { enabled: true, maxEntries: 10, maxAgeHours: 1 });
+  const service = createHistoryService(store);
+  assert.deepEqual((await service.status()).recordingScope, { type: 'all' });
+  await assert.rejects(service.configure({ recordingScope: { type: 'host', url: 'chrome://extensions' } }), /HTTP/);
+  await assert.rejects(service.configure({ recordingScope: { type: 'domains', domains: [] } }), /domains/);
+  await assert.rejects(service.configure({ recordingScope: { type: 'unknown' } }), /scope/);
+  await service.configure({ recordingScope: { type: 'domains', domains: ['example.com'], includeSubdomains: true } });
+  assert.equal((await service.record({ cookie: { ...cookie, domain: 'sub.example.com' }, removed: false })).recorded, true);
+  assert.equal((await service.record({ cookie: { ...cookie, domain: 'unrelated.com' }, removed: false })).recorded, false);
+});
+
+test('recording scope stores only the host or cookie path, never URL credentials, queries or fragments', async () => {
+  const store = storage(); const service = createHistoryService(store);
+  await service.configure({recordingScope:{type:'host',url:'https://user:SECRET@example.com/private?token=SECRET#SECRET'}});
+  assert.equal((await service.status()).recordingScope.url,'https://example.com/');
+  await service.configure({recordingScope:{type:'url',url:'https://example.com/account?token=SECRET#SECRET'}});
+  assert.equal((await service.status()).recordingScope.url,'https://example.com/account');
+  assert.equal(JSON.stringify([...store.map]).includes('SECRET'),false);
+});

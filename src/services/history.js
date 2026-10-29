@@ -2,7 +2,27 @@ import { cookieId, inScope } from '../core/cookies.js';
 
 const CONFIG_KEY = 'history-config';
 const EVENTS_KEY = 'history-events';
-const DEFAULTS = { enabled: false, maxEntries: 1000, maxAgeHours: 24 };
+const DEFAULTS = { enabled: false, maxEntries: 1000, maxAgeHours: 24, recordingScope: { type: 'all' } };
+function recordingScope(input) {
+  if (!input || typeof input !== 'object' || !['all', 'url', 'host', 'site', 'domains'].includes(input.type)) throw new Error('Choose an explicit recording scope.');
+  const result = { type: input.type };
+  if (input.storeId != null && input.storeId !== '') {
+    if (typeof input.storeId !== 'string') throw new Error('Recording store must be a valid cookie store ID.');
+    result.storeId = input.storeId;
+  }
+  if (input.incognito !== undefined) result.incognito = Boolean(input.incognito);
+  if (['url', 'host', 'site'].includes(input.type)) {
+    let url; try { url = new URL(input.url); } catch { throw new Error('Recording this page or site needs an HTTP(S) target URL.'); }
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Recording this page or site needs an HTTP(S) target URL.');
+    result.url = `${url.origin}${input.type === 'url' ? url.pathname : '/'}`;
+  }
+  if (input.type === 'domains') {
+    if (!Array.isArray(input.domains) || !input.domains.length || input.domains.length > 100 || input.domains.some(domain => typeof domain !== 'string' || !domain || /[\s/:?#@]/.test(domain))) throw new Error('Choose between 1 and 100 valid recording domains.');
+    result.domains = [...new Set(input.domains.map(domain => domain.toLowerCase().replace(/^\./, '')))];
+    result.includeSubdomains = input.includeSubdomains !== false;
+  }
+  return result;
+}
 const ATTRIBUTES = ['domain', 'path', 'storeId', 'hostOnly', 'secure', 'httpOnly', 'sameSite', 'session', 'expirationDate', 'partitionKey'];
 const encoder = new TextEncoder();
 const safeMetadata = cookie => {
@@ -51,7 +71,7 @@ export function createHistoryService(storage) {
     const signed = await crypto.subtle.sign('HMAC', await keyPromise, encoder.encode(String(value ?? '')));
     return Array.from(new Uint8Array(signed), byte => byte.toString(16).padStart(2, '0')).join('');
   };
-  async function config() { return { ...DEFAULTS, ...await storage.get(CONFIG_KEY) }; }
+  async function config() { const saved = await storage.get(CONFIG_KEY); return { ...DEFAULTS, ...saved, recordingScope: structuredClone(saved?.recordingScope ?? DEFAULTS.recordingScope) }; }
   function trim(events, policy) {
     const cutoff = Date.now() - policy.maxAgeHours * 3_600_000;
     return events.filter(item => item.observedAt >= cutoff).slice(-policy.maxEntries);
@@ -65,6 +85,7 @@ export function createHistoryService(storage) {
       return serial(async () => {
         const policy = await config();
         if (input.enabled !== undefined) policy.enabled = Boolean(input.enabled);
+        if (input.recordingScope !== undefined) { policy.recordingScope = recordingScope(input.recordingScope); pending.clear(); }
         if (input.maxEntries !== undefined) {
           if (!Number.isInteger(Number(input.maxEntries)) || input.maxEntries < 1 || input.maxEntries > 10_000) throw new Error('History retention must be between 1 and 10,000 events.');
           policy.maxEntries = Number(input.maxEntries);
@@ -80,7 +101,7 @@ export function createHistoryService(storage) {
         return policy;
       });
     },
-    async status() { return { ...await config(), snapshotCount: sessionSnapshots.size, snapshotsPersisted: false,
+    async status() { const policy = await config(); return { ...policy, eventCount: (await loadEvents(policy)).length + privateEvents.length, snapshotCount: sessionSnapshots.size, snapshotsPersisted: false,
       observation: 'Timestamps are when Cookiebase observed an event, not cookie creation times.',
       networkDiagnosis: 'Set-Cookie rejection reasons and OAuth causality are not observable through the cookies API. No network headers are recorded.' }; },
     record(changeInfo, { incognito = false, observedAt: observedTimestamp } = {}) {
@@ -88,6 +109,7 @@ export function createHistoryService(storage) {
         const policy = await config();
         if (!policy.enabled || !changeInfo?.cookie) return { recorded: false };
         const cookie = { ...changeInfo.cookie, incognito };
+        if (!inScope(cookie, policy.recordingScope)) return { recorded: false, reason: 'outside-recording-scope' };
         const observedAt = Number.isFinite(observedTimestamp) ? observedTimestamp : Date.now();
         const id = cookieId(cookie);
         const contextKey = `${incognito ? 'private' : 'regular'}:${id}`;

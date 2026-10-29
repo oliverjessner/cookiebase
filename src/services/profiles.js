@@ -1,4 +1,6 @@
 import { cookieId, inScope, validateCookie } from '../core/cookies.js';
+import { protectedBy } from '../core/rules.js';
+import { compareSnapshotCookies } from './history.js';
 
 const MAX_PROFILES = 200;
 const MAX_SNAPSHOTS = 50;
@@ -59,34 +61,41 @@ function planning(profile, current, scope, mode) {
     additions: target.filter(cookie => !currentMap.has(cookieId(cookie))) };
 }
 
-export function createProfileService({ vault, repository }) {
+export function createProfileService({ vault, repository, getRules = async () => [] }) {
   async function profile(id) { return findProfile(await vault.read(), id); }
   async function current(scope) {
     assertScope(scope);
     const result = await repository.list({ scope });
     return result.cookies;
   }
-  async function saveSnapshot({ name, scope, cookies, kind = 'manual' }) {
+  async function saveSnapshot({ name, scope, cookies, kind = 'manual', completeScope = false, boundaryScope }) {
     validateCookies(cookies, scope);
+    if (boundaryScope) {
+      assertScope(boundaryScope);
+      if (boundaryScope.storeId !== scope.storeId || cookies.some(cookie => !inScope(cookie, boundaryScope))) throw new Error('Snapshot boundary does not match its cookies or store.');
+    }
     const snapshot = { id: crypto.randomUUID(), name: text(name, 'Snapshot name', 120, true), scope: structuredClone(scope),
-      cookies: structuredClone(cookies), kind, createdAt: now() };
+      cookies: structuredClone(cookies), kind, completeScope: Boolean(completeScope), ...(boundaryScope ? { boundaryScope: structuredClone(boundaryScope) } : {}), createdAt: now() };
     await vault.update(data => { data.snapshots.push(snapshot); data.snapshots = data.snapshots.slice(-MAX_SNAPSHOTS); });
-    return { id: snapshot.id, name: snapshot.name, scope: snapshot.scope, cookieCount: cookies.length, createdAt: snapshot.createdAt, kind };
+    return { id: snapshot.id, name: snapshot.name, scope: snapshot.scope, cookieCount: cookies.length, createdAt: snapshot.createdAt, kind, completeScope: snapshot.completeScope, boundaryScope: snapshot.boundaryScope };
   }
-  async function execute(target, scope, { mode = 'merge', backup = true, rollbackOnFailure = true, expectedRemovalIds } = {}) {
-    const before = await current(scope);
+  async function execute(target, scope, { mode = 'merge', backup = true, rollbackOnFailure = true, expectedRemovalIds, overrideProtection = false, onProgress } = {}) {
+    const before = (await current(scope)).filter(cookie => inScope(cookie, target.scope));
     const plan = planning(target, before, scope, mode);
     if (expectedRemovalIds && JSON.stringify([...expectedRemovalIds].sort()) !== JSON.stringify(plan.removals.map(cookieId).sort())) throw new Error('Cookie state changed since preview. Preview this profile again before applying.');
     const invalid = plan.target.map(cookie => ({ cookie, errors: validateCookie(cookie) })).filter(item => item.errors.length);
     if (invalid.length) return { processed: invalid.length, applied: 0, removed: 0, failed: invalid.length, results: invalid.map(({ cookie, errors }) => ({ ...metadata(cookie), action: 'set', status: 'failed', error: errors.join(' ') })), backupId: null, rollback: null, warning: 'Apply aborted before any changes because stored cookies are invalid or expired. Edit the profile or choose a valid state.' };
+    const protectedChanges = await protectedPlan(plan);
+    if (protectedChanges.length && !overrideProtection) throw new Error('This state change affects protected cookies. Review the protected-cookie preview and explicitly allow those changes.');
     let backupSnapshot = null;
-    if (backup) backupSnapshot = await saveSnapshot({ name: `Before ${target.name}`.slice(0, 120), scope, cookies: before, kind: 'apply-backup' });
+    if (backup) backupSnapshot = await saveSnapshot({ name: `Before ${target.name}`.slice(0, 120), scope, boundaryScope: target.scope, completeScope: true, cookies: before, kind: 'apply-backup' });
     const report = { processed: 0, applied: 0, removed: 0, failed: 0, results: [], backupId: backupSnapshot?.id ?? null,
       rollback: null, warning: 'Cookies were verified at application time. Websites may subsequently change them; server sessions, MFA and CSRF cannot be restored by Cookiebase.' };
     for (const cookie of plan.removals) {
       report.processed++;
       try { await repository.remove(cookie); report.removed++; report.results.push({ ...metadata(cookie), action: 'remove', status: 'verified' }); }
       catch (error) { report.failed++; report.results.push({ ...metadata(cookie), action: 'remove', status: 'failed', error: safeError(error) }); }
+      if (onProgress) await onProgress({ processed: report.processed, total: plan.removals.length + plan.target.length, applied: report.applied, removed: report.removed, failed: report.failed });
     }
     for (const cookie of plan.target) {
       report.processed++;
@@ -99,6 +108,7 @@ export function createProfileService({ vault, repository }) {
         report.applied++;
         report.results.push({ ...metadata(cookie), action: 'set', status: 'verified' });
       } catch (error) { report.failed++; report.results.push({ ...metadata(cookie), action: 'set', status: 'failed', error: safeError(error) }); }
+      if (onProgress) await onProgress({ processed: report.processed, total: plan.removals.length + plan.target.length, applied: report.applied, removed: report.removed, failed: report.failed });
     }
     if (report.failed && rollbackOnFailure && backupSnapshot) {
       report.rollback = { attempted: true, restored: 0, removed: 0, failed: 0, results: [], atomic: false };
@@ -114,6 +124,23 @@ export function createProfileService({ vault, repository }) {
       }
     }
     return report;
+  }
+  async function protectedPlan(plan) {
+    const rules = await getRules();
+    return [
+      ...plan.overwrites.filter(cookie => protectedBy(cookie, rules).length).map(cookie => ({ ...metadata(cookie), action: 'overwrite' })),
+      ...plan.removals.filter(cookie => protectedBy(cookie, rules).length).map(cookie => ({ ...metadata(cookie), action: 'remove' })),
+    ];
+  }
+  async function makePreview(item, scope, mode) {
+    const plan = planning(item, await current(scope), scope, mode);
+    const protectedChanges = await protectedPlan(plan);
+    return { profileId: item.id, name: item.name, scope, profileScope: item.scope, mode,
+      invalidCookies: plan.target.flatMap(cookie => { const errors = validateCookie(cookie); return errors.length ? [{ ...metadata(cookie), error: errors.join(' ') }] : []; }),
+      additions: plan.additions.length, overwrites: plan.overwrites.length, removals: plan.removals.length,
+      excluded: item.cookies.length - plan.target.length, sessionCookies: plan.target.filter(c => c.session).length,
+      cookies: plan.target.map(metadata), removeCookies: plan.removals.map(metadata), protectedChanges,
+      warning: 'Apply changes browser cookies in the shown scope. Sessions may already be invalid; this is not an automatic login.' };
   }
   return {
     async list(query = '') {
@@ -154,14 +181,13 @@ export function createProfileService({ vault, repository }) {
     async remove(id) {
       return vault.update(data => { findProfile(data, id); data.profiles = data.profiles.filter(p => p.id !== id); return { removed: true }; });
     },
-    async preview(id, { scope, mode = 'merge' }) {
+    async preview(id, { scope, mode = 'merge' }) { return makePreview(await profile(id), scope, mode); },
+    async previewUpdate(id, { scope, cookies }) {
       const item = await profile(id);
-      const plan = planning(item, await current(scope), scope, mode);
-      return { profileId: id, name: item.name, scope, profileScope: item.scope, mode, invalidCookies: plan.target.flatMap(cookie => { const errors = validateCookie(cookie); return errors.length ? [{ ...metadata(cookie), error: errors.join(' ') }] : []; }), additions: plan.additions.length, overwrites: plan.overwrites.length,
-        removals: plan.removals.length, excluded: item.cookies.length - plan.target.length,
-        sessionCookies: plan.target.filter(c => c.session).length,
-        cookies: plan.target.map(metadata), removeCookies: plan.removals.map(metadata),
-        warning: 'Apply changes browser cookies in this explicit scope. Sessions may already be invalid; this is not an automatic login.' };
+      validateCookies(cookies, scope);
+      if (item.scope.storeId !== scope.storeId) throw new Error('Profile belongs to a different store. Cross-store update is refused.');
+      return { profileId: item.id, name: item.name, previousCount: item.cookies.length, nextCount: cookies.length,
+        previousScope: item.scope, scope, ...compareSnapshotCookies(item.cookies, cookies) };
     },
     async apply(id, options) { return execute(await profile(id), options.scope, options); },
     async exportProfile(id) { return { format: 'cookiebase-profile', version: 1, exportedAt: now(), profile: await profile(id), warning: 'Unencrypted session secrets. Share only with trusted recipients.' }; },
@@ -176,11 +202,22 @@ export function createProfileService({ vault, repository }) {
       return item;
     },
     async listSnapshots() {
-      return (await vault.read()).snapshots.map(({ cookies, ...s }) => ({ ...s, cookieCount: cookies.length }));
+      return (await vault.read()).snapshots.map(({ cookies, ...s }) => ({ ...s, cookieCount: cookies.length, completeScope: s.completeScope === true, cookieMetadata: cookies.map(metadata) }));
+    },
+    async previewSnapshot(id, { mode = 'merge' } = {}) {
+      const snapshot = await this.getSnapshot(id);
+      if (mode === 'replace' && !snapshot.completeScope) throw new Error('This snapshot contains only selected cookies. Restore saved cookies is available; full site replacement is not.');
+      const target = { ...snapshot, scope: snapshot.boundaryScope || snapshot.scope };
+      return { ...await makePreview(target, snapshot.scope, mode), snapshotId: id, completeScope: snapshot.completeScope === true };
     },
     async restoreSnapshot(id, options = {}) {
       const snapshot = await this.getSnapshot(id);
-      return execute({ ...snapshot, name: snapshot.name }, snapshot.scope, { mode: options.mode ?? 'merge', backup: false, rollbackOnFailure: false });
+      const mode = options.mode ?? 'merge';
+      if (mode === 'replace' && !snapshot.completeScope) throw new Error('This snapshot contains only selected cookies. It cannot replace the full site state.');
+      const target = { ...snapshot, scope: snapshot.boundaryScope || snapshot.scope };
+      const result = await execute(target, snapshot.scope, { ...options, mode, backup: mode === 'replace', rollbackOnFailure: mode === 'replace' });
+      if (!result.failed) await vault.update(data => { const stored = data.snapshots.find(s => s.id === id); if (stored) { stored.restoredAt = now(); stored.restoredMode = mode; } });
+      return { ...result, snapshotId: id, restoredAt: !result.failed ? now() : null, restoredMode: mode };
     },
     async deleteSnapshot(id) { await vault.update(data => { data.snapshots = data.snapshots.filter(s => s.id !== id); }); return { removed: true }; },
   };

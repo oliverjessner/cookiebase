@@ -155,3 +155,33 @@ test('Netscape refuses lossy partition or tab/newline exports; unknown versions 
   assert.equal(invalidRows.invalid.length, 10001);
   assert.match(invalidRows.invalid.at(-1).error, /10,000/);
 });
+
+test('explicit domain remapping is previewed without altering stores or privacy metadata', () => {
+  const input = { ...fixture[1], domain:'source.example.test',storeId:'0',incognito:false };
+  const preserved = parseImport(JSON.stringify([input]),{targetUrl:'https://destination.example.test/'});
+  assert.equal(preserved.cookies[0].domain,'source.example.test');
+  const mapped = parseImport(JSON.stringify([input]),{targetUrl:'https://destination.example.test/',remapDomain:true});
+  assert.equal(mapped.invalid.length,0);
+  assert.equal(mapped.cookies[0].domain,'destination.example.test');
+  assert.equal(mapped.cookies[0].storeId,'0');
+  assert.equal(mapped.cookies[0].incognito,false);
+  const plan = previewImport(mapped,[],{scope:{type:'host',url:'https://destination.example.test/',storeId:'0',incognito:false}});
+  assert.equal(plan.mapping[0].sourceDomain,'source.example.test');
+  assert.equal(plan.mapping[0].targetDomain,'destination.example.test');
+  assert.doesNotMatch(JSON.stringify(plan.mapping),/fixture-session/);
+  const crossed = previewImport(parseImport(JSON.stringify([{...input,storeId:'1',incognito:true}]),{targetUrl:'https://destination.example.test/',remapDomain:true}),[],{scope:{type:'host',url:'https://destination.example.test/',storeId:'0',incognito:false}});
+  assert.equal(crossed.counts.valid,0);assert.match(crossed.invalid[0].error,/Incognito/);
+  assert.match(parseImport(JSON.stringify([input]),{remapDomain:true,targetUrl:'file:///secret'}).invalid[0].error,/HTTP/);
+});
+
+test('import progress reports verified counters and never cookie payloads', async () => {
+  const old = {...fixture[2],name:'obsolete'};
+  const chosen = {type:'host',url:'http://app.example.test/',storeId:'0',incognito:false};
+  const plan = previewImport(parseImport(JSON.stringify([fixture[2]])),[old],{scope:chosen,mode:'replace'});
+  const updates=[];
+  const result=await executeImport(plan,{repository:repository([old]),onProgress:async state=>updates.push(structuredClone(state))});
+  assert.equal(result.imported,1);assert.equal(result.removed,1);
+  assert.equal(updates[0].completed,0);assert.equal(updates.at(-1).completed,2);assert.equal(updates.at(-1).total,2);
+  assert.equal(updates.at(-1).imported,1);assert.equal(updates.at(-1).removed,1);
+  assert.equal(updates.some(item=>Object.hasOwn(item,'cookies')||Object.hasOwn(item,'value')),false);
+});

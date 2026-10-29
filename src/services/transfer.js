@@ -26,6 +26,12 @@ function normalise(input, options) {
   output.secure ??= false;
   output.httpOnly ??= false;
   output.hostOnly ??= !output.domain.startsWith('.');
+  if (options.remapDomain) {
+    let target;
+    try { target = new URL(options.targetUrl); } catch { throw new Error('Domain remapping needs an explicit HTTP(S) target URL.'); }
+    if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Domain remapping needs an explicit HTTP(S) target URL.');
+    output.domain = output.hostOnly ? target.hostname : `.${target.hostname}`;
+  }
   output.sameSite ??= 'unspecified';
   const sameSites = { Lax: 'lax', Strict: 'strict', None: 'no_restriction', none: 'no_restriction' };
   output.sameSite = sameSites[output.sameSite] ?? output.sameSite;
@@ -49,7 +55,7 @@ function normalise(input, options) {
 
 /** Parse without changing browser state. Errors intentionally never include input values. */
 export function parseImport(text, options = {}) {
-  const result = { format: 'unknown', cookies: [], invalid: [], warnings: [], metadata: {} };
+  const result = { format: 'unknown', cookies: [], invalid: [], warnings: [], metadata: {}, mapping: [] };
   if (typeof text !== 'string' || !text.trim()) {
     result.invalid.push(issue(0, null, 'Import is empty. Choose a file or paste cookies.'));
     return result;
@@ -124,10 +130,15 @@ export function parseImport(text, options = {}) {
     return result;
   }
   for (const [index, record] of records.entries()) {
-    try { result.cookies.push(normalise(record, options)); }
+    try {
+      const cookie = normalise(record, options);
+      result.cookies.push(cookie);
+      result.mapping.push({ index: index + 1, name: cookie.name, sourceDomain: typeof record.domain === 'string' ? record.domain : '(missing)', targetDomain: cookie.domain, sourceStoreId: record.storeId == null ? '(missing)' : String(record.storeId), targetStoreId: cookie.storeId });
+    }
     catch (error) { result.invalid.push(issue(index + 1, record, error.message)); }
   }
   if (!records.length && !result.invalid.length) result.warnings.push('The import contains no cookies. An empty replace clears the explicitly chosen scope.');
+  if (options.remapDomain && result.cookies.length) result.warnings.push('Explicit domain remapping is enabled. Supplied stores and privacy contexts are preserved; session credentials may not be valid on the destination site.');
   if (result.cookies.some(cookie => cookie.session)) result.warnings.push('Session cookies may grant account access. Servers can invalidate sessions after import.');
   return result;
 }
@@ -138,7 +149,7 @@ export function previewImport(parsed, existing, options = {}) {
   if (!scope?.type) throw new Error('Choose an explicit import scope before previewing.');
   if (!['merge', 'replace', 'skip', 'overwrite'].includes(mode)) throw new Error('Unsupported import mode.');
   const plan = {
-    scope: structuredClone(scope), mode, cookies: [], invalid: [...parsed.invalid], warnings: [...parsed.warnings], actions: [], removals: [], requiredOrigins: [], counts: {},
+    scope: structuredClone(scope), mode, mapping: structuredClone(parsed.mapping || []), cookies: [], invalid: [...parsed.invalid], warnings: [...parsed.warnings], actions: [], removals: [], requiredOrigins: [], counts: {},
   };
   const current = new Map(existing.filter(cookie => inScope(cookie, scope)).map(cookie => [cookieId(cookie), cookie]));
   const incoming = new Map();
@@ -171,7 +182,7 @@ export function previewImport(parsed, existing, options = {}) {
 }
 
 /** Each write must pass the repository's real read-back verification. */
-export async function executeImport(plan, { repository, snapshot } = {}) {
+export async function executeImport(plan, { repository, snapshot, onProgress } = {}) {
   if (!repository || !plan?.scope?.type) throw new Error('A repository and explicit preview scope are required.');
   const report = { processed: 0, imported: 0, overwritten: 0, skipped: 0, failed: 0, removed: 0, results: [] };
   const record = result => {
@@ -182,10 +193,15 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
     else if (result.status === 'imported') report.imported++;
     else if (result.status === 'overwritten') report.overwritten++;
   };
+  const progress = async () => {
+    if (onProgress) await onProgress({ phase: 'import', completed: report.processed + report.removed, total: plan.invalid.length + plan.actions.length + plan.removals.length, processed: report.processed, imported: report.imported, overwritten: report.overwritten, skipped: report.skipped, failed: report.failed, removed: report.removed });
+  };
+  await progress();
   for (const invalid of plan.invalid) record({ ...invalid, status: 'failed' });
   if (plan.mode === 'replace' && plan.invalid.length) {
     report.aborted = true;
     for (const action of plan.actions) record({ name: action.cookie.name, domain: action.cookie.domain, status: 'skipped', reason: 'Replace preflight failed; browser state is unchanged.' });
+    await progress();
     return report;
   }
   if (snapshot && plan.snapshotCookies.length) report.snapshotId = await snapshot(plan.snapshotCookies, { scope: plan.scope, reason: 'Before import' });
@@ -202,16 +218,18 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
       // value-free; repository diagnostics remain available in the action view.
       record({ name: cookie.name, domain: cookie.domain, status: 'failed', error: safeOperationError(error, cookie, 'removed') });
     }
+    await progress();
   }
   if (report.failed && plan.mode === 'replace') {
     report.aborted = true;
     for (const action of plan.actions) record({ name: action.cookie.name, domain: action.cookie.domain, status: 'skipped', reason: 'Replacement stopped after a removal failure. Restore the snapshot if needed.' });
+    await progress();
     return report;
   }
   for (const action of plan.actions) {
     const { cookie } = action;
     const identity = { name: cookie.name, domain: cookie.domain, storeId: cookie.storeId, partitionKey: cookie.partitionKey };
-    if (action.action === 'skip') { record({ ...identity, status: 'skipped', reason: action.reason || 'Duplicate identity already exists.' }); continue; }
+    if (action.action === 'skip') { record({ ...identity, status: 'skipped', reason: action.reason || 'Duplicate identity already exists.' }); await progress(); continue; }
     try {
       await repository.set(cookie);
       await repository.verify(cookie);
@@ -219,6 +237,7 @@ export async function executeImport(plan, { repository, snapshot } = {}) {
     } catch (error) {
       record({ ...identity, status: 'failed', error: safeOperationError(error, cookie) });
     }
+    await progress();
   }
   report.note = 'Verified at import time. A later reload, redirect, server response or script can change cookies. Cookiebase does not restore server-side sessions.';
   return report;

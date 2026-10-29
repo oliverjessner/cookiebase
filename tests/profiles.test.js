@@ -114,3 +114,75 @@ test('expired profile apply and stale replacement preview never remove current c
   await assert.rejects(service.apply(empty.id,{scope,mode:'replace',expectedRemovalIds:[]}),/state changed/);
   assert.equal(state.get(cookieId(cookie)).value,cookie.value);
 });
+
+test('saved-cookie restore is distinct from complete-scope restore and marks disabled snapshots restored', async () => {
+  const extra = { ...cookie, name: 'added-later', value: 'new-state' };
+  const { service, state } = await setup([extra]);
+  const snapshot = await service.saveSnapshot({ name: 'Disabled session', scope, cookies: [cookie], kind: 'disabled' });
+  const preview = await service.previewSnapshot(snapshot.id);
+  assert.equal(preview.additions, 1);
+  assert.equal(preview.removals, 0);
+  assert.equal(preview.completeScope, false);
+  await assert.rejects(service.previewSnapshot(snapshot.id, { mode: 'replace' }), /only selected cookies/);
+  await assert.rejects(service.restoreSnapshot(snapshot.id, { mode: 'replace' }), /only selected cookies/);
+  await service.restoreSnapshot(snapshot.id, { mode: 'merge' });
+  assert.equal(state.get(cookieId(extra)).value, 'new-state');
+  const stored = (await service.listSnapshots()).find(item => item.id === snapshot.id);
+  assert.ok(stored.restoredAt);
+  assert.equal(stored.restoredMode, 'merge');
+  assert.equal(stored.cookieMetadata[0].name, cookie.name);
+  assert.equal(JSON.stringify(stored).includes(cookie.value), false);
+});
+
+test('complete profile backup replaces only its original boundary and removes introduced identities', async () => {
+  const unrelated = { ...cookie, domain: 'unrelated.test', value: 'never-overwrite' };
+  const target = { ...cookie, name: 'new-user', value: 'target-state' };
+  const { service, state } = await setup([cookie, unrelated]);
+  const item = await service.create({ name: 'New QA', scope, cookies: [target] });
+  const broad = { type: 'all', storeId: '0', incognito: false };
+  const applied = await service.apply(item.id, { scope: broad, mode: 'replace' });
+  const snapshot = await service.getSnapshot(applied.backupId);
+  assert.equal(snapshot.completeScope, true);
+  assert.equal(snapshot.cookies.length, 1);
+  assert.deepEqual(snapshot.boundaryScope, scope);
+  const preview = await service.previewSnapshot(snapshot.id, { mode: 'replace' });
+  assert.equal(preview.removals, 1);
+  await service.restoreSnapshot(snapshot.id, { mode: 'replace', expectedRemovalIds: preview.removeCookies.map(cookieId) });
+  assert.equal(state.has(cookieId(target)), false);
+  assert.equal(state.get(cookieId(cookie)).value, cookie.value);
+  assert.equal(state.get(cookieId(unrelated)).value, 'never-overwrite');
+});
+
+test('protected profile changes require explicit override and preview contains no values', async () => {
+  const { state, map, vault, repository } = await setup([cookie]);
+  const service = createProfileService({ vault, repository, getRules: async () => [{ domain: 'example.com', name: 'sid', path: '/' }] });
+  const item = await service.create({ name: 'State change', scope, cookies: [{ ...cookie, value: 'replacement-secret' }] });
+  const preview = await service.preview(item.id, { scope, mode: 'merge' });
+  assert.equal(preview.protectedChanges.length, 1);
+  assert.equal(preview.protectedChanges[0].action, 'overwrite');
+  assert.equal(JSON.stringify(preview).includes('replacement-secret'), false);
+  await assert.rejects(service.apply(item.id, { scope, mode: 'merge' }), /protected cookies/);
+  assert.equal(state.get(cookieId(cookie)).value, cookie.value);
+  const progress = [];
+  const result = await service.apply(item.id, { scope, mode: 'merge', overrideProtection: true, onProgress: counters => { progress.push(counters); } });
+  assert.equal(result.failed, 0);
+  assert.equal(progress.at(-1).processed, 1);
+  assert.equal(JSON.stringify(progress).includes('replacement-secret'), false);
+  assert.equal(JSON.stringify([...map]).includes('replacement-secret'), false);
+});
+
+test('updating profile state has a value-redacted comparison before saving', async () => {
+  const { service } = await setup();
+  const item = await service.create({ name: 'Existing QA', scope, cookies: [cookie] });
+  const next = [{ ...cookie, value: 'updated-secret', sameSite: 'strict' }, { ...cookie, name: 'new', value: 'new-secret' }];
+  const preview = await service.previewUpdate(item.id, { scope, cookies: next });
+  assert.equal(preview.previousCount, 1);
+  assert.equal(preview.nextCount, 2);
+  assert.equal(preview.added.length, 1);
+  assert.equal(preview.changed.length, 1);
+  assert.equal(preview.changed[0].valueChanged, true);
+  assert.equal(JSON.stringify(preview).includes('updated-secret'), false);
+  assert.equal((await service.get(item.id)).cookies[0].value, cookie.value);
+  await service.update(item.id, { scope, cookies: next });
+  assert.equal((await service.get(item.id)).cookies[0].value, 'updated-secret');
+});
